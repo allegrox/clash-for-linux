@@ -5,7 +5,7 @@ set -euo pipefail
 # 基础参数
 # =========================
 Server_Dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-Install_Dir="${CLASH_INSTALL_DIR:-/opt/clash-for-linux}"
+Install_Dir="${CLASH_INSTALL_DIR:-$Server_Dir}"
 Service_Name="clash-for-linux"
 Service_User="root"
 Service_Group="root"
