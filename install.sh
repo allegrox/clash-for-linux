@@ -225,7 +225,7 @@ prompt_clash_url_if_empty
 CLASH_HTTP_PORT=${CLASH_HTTP_PORT:-7890}
 CLASH_SOCKS_PORT=${CLASH_SOCKS_PORT:-7891}
 CLASH_REDIR_PORT=${CLASH_REDIR_PORT:-7892}
-EXTERNAL_CONTROLLER=${EXTERNAL_CONTROLLER:-0.0.0.0:9090}
+EXTERNAL_CONTROLLER=${EXTERNAL_CONTROLLER:-127.0.0.1:9090}
 
 parse_port() {
   local raw="$1"
@@ -473,8 +473,30 @@ section "控制面板"
 api_port="$(parse_port "${EXTERNAL_CONTROLLER}")"
 api_host="${EXTERNAL_CONTROLLER%:*}"
 
+get_public_ip() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -4 -fsS --max-time 3 https://api.ipify.org 2>/dev/null \
+      || curl -4 -fsS --max-time 3 https://ifconfig.me 2>/dev/null \
+      || curl -4 -fsS --max-time 3 https://ipv4.icanhazip.com 2>/dev/null \
+      || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --timeout=3 https://api.ipify.org 2>/dev/null \
+      || wget -qO- --timeout=3 https://ifconfig.me 2>/dev/null \
+      || wget -qO- --timeout=3 https://ipv4.icanhazip.com 2>/dev/null \
+      || true
+  else
+    true
+  fi
+}
+
 if [[ -z "$api_host" ]] || [[ "$api_host" == "$EXTERNAL_CONTROLLER" ]]; then
   api_host="127.0.0.1"
+fi
+
+if [[ "$api_host" == "0.0.0.0" ]] || [[ "$api_host" == "::" ]] || [[ "$api_host" == "localhost" ]]; then
+  api_host="$(get_public_ip | tr -d '\r\n')"
+  [[ -z "$api_host" ]] && api_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [[ -z "$api_host" ]] && api_host="127.0.0.1"
 fi
 
 CONF_DIR="$Install_Dir/conf"
