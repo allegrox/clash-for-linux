@@ -448,8 +448,10 @@ if { [ "${SYSTEMD_MODE}" = "true" ] && [ -z "${URL:-}" ]; } || [ "${MANUAL_EMPTY
   SKIP_CONFIG_REBUILD=true
 fi
 
+CLASH_AUTO_UPDATE="${CLASH_AUTO_UPDATE:-true}"
+
 #################### Clash 订阅地址检测及配置文件下载 ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   echo -e '\n正在检测订阅地址...'
   Text1="Clash订阅地址可访问！"
   Text2="Clash订阅地址不可访问！"
@@ -494,7 +496,7 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
 fi
 
 #################### 下载订阅并生成 config.yaml（非兜底路径） ####################
-if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; then
   ensure_subconverter || true
   echo -e '\n正在下载Clash配置文件...'
   Text3="配置文件clash.yaml下载成功！"
@@ -646,6 +648,12 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ]; then
       if_success "$Text3" "$Text4（退出启动）" "$ReturnStatus"
     fi
   fi
+fi
+
+if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" != "true" ]; then
+  echo -e "\033[33m[WARN]\033[0m 已关闭自动更新订阅，使用本地已有配置启动"
+  ensure_fallback_config || true
+  SKIP_CONFIG_REBUILD=true
 fi
 
 # =========================================================
