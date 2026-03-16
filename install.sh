@@ -478,23 +478,37 @@ if [[ -z "$api_host" ]] || [[ "$api_host" == "$EXTERNAL_CONTROLLER" ]]; then
 fi
 
 CONF_DIR="$Install_Dir/conf"
-CONF_FILE="$CONF_DIR/config.yaml"
+TEMP_DIR="$Install_Dir/temp"
 
 SECRET_VAL=""
-if wait_secret_ready "$CONF_FILE" 6; then
-  SECRET_VAL="$(read_secret_from_config "$CONF_FILE" || true)"
-fi
+SECRET_FILE=""
+
+for f in \
+  "$TEMP_DIR/config.yaml" \
+  "$CONF_DIR/config.yaml"
+do
+  if wait_secret_ready "$f" 12; then
+    SECRET_VAL="$(read_secret_from_config "$f" || true)"
+    if [[ -n "$SECRET_VAL" ]]; then
+      SECRET_FILE="$f"
+      break
+    fi
+  fi
+done
 
 dash="http://${api_host}:${api_port}/ui"
 log "🌐 Dashboard：$(url "$dash")"
 
+SHOW_FILE="${SECRET_FILE:-$CONF_DIR/config.yaml}"
+
 if [[ -n "$SECRET_VAL" ]]; then
-  MASKED="${SECRET_VAL}"
+  MASKED="${SECRET_VAL:0:4}****${SECRET_VAL: -4}"
   log "🔐 Secret：${C_YELLOW}${MASKED}${C_NC}"
-  log "   查看完整 Secret：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_FILE\" | head -n 1")"
+  log "   查看完整 Secret：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$SHOW_FILE\" | head -n 1")"
 else
   log "🔐 Secret：${C_YELLOW}启动中暂未读到（稍后再试）${C_NC}"
-  log "   稍后查看：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_FILE\" | head -n 1")"
+  log "   稍后查看：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$CONF_DIR/config.yaml\" | head -n 1")"
+  log "   也可检查运行态：$(cmd "sudo sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' \"$TEMP_DIR/config.yaml\" | head -n 1")"
 fi
 
 # =========================
