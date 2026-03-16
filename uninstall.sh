@@ -129,19 +129,19 @@ for d in "/root/clash-for-linux" "/opt/clash-for-linux" "${INSTALL_DIR:-}"; do
 done
 
 # 5) remove install dirs
-removed_any=false
-for d in "${INSTALL_DIR:-}" "/root/clash-for-linux" "/opt/clash-for-linux"; do
-  [ -n "$d" ] || continue
-  if [ -d "$d" ] && { [ -f "$d/start.sh" ] || [ -d "$d/conf" ] || [ "$d" = "$INSTALL_DIR" ]; }; then
-    rm -rf "$d"
-    ok "已移除安装目录: $d"
-    removed_any=true
-  fi
-done
+# removed_any=false
+# for d in "${INSTALL_DIR:-}" "/root/clash-for-linux" "/opt/clash-for-linux"; do
+#   [ -n "$d" ] || continue
+#   if [ -d "$d" ] && { [ -f "$d/start.sh" ] || [ -d "$d/conf" ] || [ "$d" = "$INSTALL_DIR" ]; }; then
+#     rm -rf "$d"
+#     ok "已移除安装目录: $d"
+#     removed_any=true
+#   fi
+# done
 
-if [ "$removed_any" = false ]; then
-  warn "未发现可删除的安装目录"
-fi
+# if [ "$removed_any" = false ]; then
+#   warn "未发现可删除的安装目录"
+# fi
 
 echo
 warn "如果你曾执行 proxy_on，当前终端可能仍保留代理环境变量。可执行："
