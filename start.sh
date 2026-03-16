@@ -651,8 +651,21 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; th
 fi
 
 if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" != "true" ]; then
-  echo -e "\033[33m[WARN]\033[0m 已关闭自动更新订阅，使用本地已有配置启动"
-  ensure_fallback_config || true
+  echo -e "\033[33m[WARN]\033[0m 已关闭自动更新订阅，优先使用本地已有配置启动"
+
+  # 1) 优先使用已有 conf/config.yaml；没有才 fallback
+  if [ ! -s "$Conf_Dir/config.yaml" ]; then
+    ensure_fallback_config || true
+  fi
+
+  # 2) 补齐运行必须字段
+  force_write_controller_and_ui "$Conf_Dir/config.yaml" || true
+  force_write_secret "$Conf_Dir/config.yaml" || true
+
+  # 3) 明确指定运行配置
+  CONFIG_FILE="$Conf_Dir/config.yaml"
+
+  # 4) 跳过后续“下载 / 转换 / 拼接”流程
   SKIP_CONFIG_REBUILD=true
 fi
 
@@ -838,7 +851,10 @@ ReturnStatus=$?
 if [ "$ReturnStatus" -eq 0 ]; then
   echo ''
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
-    echo -e "Clash Dashboard 访问地址: http://${EXTERNAL_CONTROLLER}/ui"
+    SERVER_IP="$(hostname -I | awk '{print $1}')"
+    API_PORT="${EXTERNAL_CONTROLLER##*:}"
+
+    echo -e "Clash Dashboard 访问地址: http://${SERVER_IP}:${API_PORT}/ui"
 
     SHOW_SECRET="${CLASH_SHOW_SECRET:-false}"
     SHOW_SECRET_MASKED="${CLASH_SHOW_SECRET_MASKED:-true}"
