@@ -471,14 +471,17 @@ if [ "$SKIP_CONFIG_REBUILD" != "true" ] && [ "$CLASH_AUTO_UPDATE" = "true" ]; th
   status_code="$("${CHECK_CMD[@]}")"
   curl_rc=$?
   set -e
-
+  
   # curl 本身失败，视为不可用
   if [ "$curl_rc" -ne 0 ]; then
     status_code=""
     ReturnStatus=1
   else
-    echo "$status_code" | grep -E '^[23][0-9]{2}$' &>/dev/null
-    ReturnStatus=$?
+    if [[ "$status_code" =~ ^[23][0-9]{2}$ ]]; then
+      ReturnStatus=0
+    else
+      ReturnStatus=1
+    fi
   fi
 
   if [ "$ReturnStatus" -eq 0 ]; then
