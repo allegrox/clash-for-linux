@@ -46,7 +46,7 @@
 # 🚀 一键安装（推荐）
 
 ```
-git clone --branch master --depth 1 https://github.com/wnlen/clash-for-linux.git
+git clone --branch master --depth 1 https://gh-proxy.org/https://github.com/wnlen/clash-for-linux.git
 cd clash-for-linux
 sudo bash install.sh
 ```
