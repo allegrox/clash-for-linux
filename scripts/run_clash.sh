@@ -56,10 +56,11 @@ fi
 test_config() {
   local bin="$1"
   local config="$2"
-  "$bin" -t -f "$config" >/dev/null 2>&1
+  local runtime_dir="$3"
+  "$bin" -d "$runtime_dir" -t -f "$config" >/dev/null 2>&1
 }
 
-if ! test_config "$CLASH_BIN" "$CONFIG_FILE"; then
+if ! test_config "$CLASH_BIN" "$CONFIG_FILE" "$RUNTIME_DIR"; then
   echo "[ERROR] config test failed: $CONFIG_FILE" >&2
   exit 2
 fi
