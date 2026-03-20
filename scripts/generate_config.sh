@@ -98,10 +98,13 @@ apply_controller_to_config() {
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
     upsert_yaml_kv_local "$file" "external-controller" "$EXTERNAL_CONTROLLER"
 
-    mkdir -p "$RUNTIME_DIR"
-    ln -sfn "$PROJECT_DIR/dashboard/public" "$RUNTIME_DIR/ui"
+    local mihomo_home
+    mihomo_home="${HOME:-/root}/.config/mihomo"
 
-    upsert_yaml_kv_local "$file" "external-ui" "$RUNTIME_DIR/ui"
+    mkdir -p "$mihomo_home"
+    ln -sfn "$PROJECT_DIR/dashboard/public" "$mihomo_home/ui"
+
+    upsert_yaml_kv_local "$file" "external-ui" "$mihomo_home/ui"
   fi
 }
 
