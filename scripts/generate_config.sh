@@ -87,11 +87,14 @@ force_write_secret() {
 
 force_write_controller_and_ui() {
   local file="$1"
+
   if [ "$EXTERNAL_CONTROLLER_ENABLED" = "true" ]; then
     upsert_yaml_kv "$file" "external-controller" "$EXTERNAL_CONTROLLER"
-    mkdir -p "$CONF_DIR"
-    ln -sfn "$PROJECT_DIR/dashboard/public" "$CONF_DIR/ui"
-    upsert_yaml_kv "$file" "external-ui" "$CONF_DIR/ui"
+
+    mkdir -p "$RUNTIME_DIR"
+    ln -sfn "$PROJECT_DIR/dashboard/public" "$RUNTIME_DIR/ui"
+
+    upsert_yaml_kv "$file" "external-ui" "$RUNTIME_DIR/ui"
   fi
 }
 
