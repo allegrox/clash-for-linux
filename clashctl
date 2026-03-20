@@ -1,305 +1,285 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SERVICE_NAME="clash-for-linux"
+Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+Service_Name="clash-for-linux.service"
+PROFILED_FILE="/etc/profile.d/clash-for-linux.sh"
+ENV_FILE="$Server_Dir/.env"
+CONF_FILE="$Server_Dir/conf/config.yaml"
+TEMP_CONF_FILE="$Server_Dir/temp/config.yaml"
 
-resolve_clash_home() {
-	local candidates
-	if [ -n "${CLASH_HOME:-}" ] && [ -d "$CLASH_HOME" ]; then
-		echo "$CLASH_HOME"
-		return 0
-	fi
-	if [ -f "/etc/default/${SERVICE_NAME}" ]; then
-		candidates=$(awk -F= '/^CLASH_HOME=/{print $2}' "/etc/default/${SERVICE_NAME}" | tr -d '"')
-		if [ -n "$candidates" ] && [ -d "$candidates" ]; then
-			echo "$candidates"
-			return 0
-		fi
-	fi
-	if [ -f "$SCRIPT_DIR/.env" ]; then
-		echo "$SCRIPT_DIR"
-		return 0
-	fi
-	if [ -f "/opt/clash-for-linux/.env" ]; then
-		echo "/opt/clash-for-linux"
-		return 0
-	fi
-	echo "$SCRIPT_DIR"
-}
+log()   { printf "%b\n" "$*"; }
+info()  { log "\033[36m[INFO]\033[0m $*"; }
+ok()    { log "\033[32m[OK]\033[0m $*"; }
+warn()  { log "\033[33m[WARN]\033[0m $*"; }
+err()   { log "\033[31m[ERROR]\033[0m $*"; }
 
-CLASH_HOME=$(resolve_clash_home)
-ENV_FILE="$CLASH_HOME/.env"
-PID_FILE="$CLASH_HOME/temp/clash.pid"
-SUBSCRIPTION_FILE="$CLASH_HOME/conf/subscriptions.list"
-
-use_systemd() {
-	command -v systemctl >/dev/null 2>&1 || return 1
-	systemctl show --property=Version --value >/dev/null 2>&1 || return 1
-	return 0
-}
-
-action_with_systemd() {
-	local action="$1"
-	if use_systemd; then
-		if systemctl "$action" "${SERVICE_NAME}.service" >/dev/null 2>&1; then
-			return 0
-		fi
-	fi
-	return 1
-}
-
-print_usage() {
-	cat <<USAGE
-Usage: clashctl <command> [args]
+usage() {
+  cat <<'EOF'
+Usage:
+  clashctl COMMAND [OPTIONS]
 
 Commands:
-  start                 Start Clash service
-  stop                  Stop Clash service
-  restart               Restart Clash service
-  status                Show Clash service status
-  update                Refresh subscription config
-  set-url <url>          Update CLASH_URL in .env
-  sub add <name> <url> [headers]   Add subscription entry
-  sub del <name>                   Delete subscription entry
-  sub use <name>                   Activate subscription entry
-  sub update [name]                Update subscription config by entry
-  sub list                         List subscriptions
-  sub log                          Show subscription update logs
+    on                    开启代理
+    off                   关闭代理
+    status                内核状况
+    proxy                 系统代理
+    ui                    Web 面板
+    secret                Web 密钥
+    sub                   订阅管理
+    upgrade               升级内核
+    tun                   Tun 模式
+    mixin                 Mixin 配置
 
-Environment:
-  CLASH_HOME             Override Clash installation directory
-USAGE
+Global Options:
+    -h, --help            显示帮助信息
+
+Examples:
+    clashctl on
+    clashctl off
+    clashctl status
+    clashctl proxy status
+    clashctl ui
+    clashctl secret
+    clashctl sub show
+    clashctl sub update
+    clashctl tun status
+    clashctl mixin status
+
+💡 clashon 同 clashctl on，Tab 补全更方便！
+EOF
 }
 
-set_env_var() {
-	local key="$1"
-	local value="${2:-}"
-	if [ ! -f "$ENV_FILE" ]; then
-		echo "[ERROR] 未找到 .env 文件: $ENV_FILE" >&2
-		exit 1
-	fi
-	local escaped escaped_sed
-	escaped=$(printf "%s" "$value" | sed "s/'/'\"'\"'/g")
-	escaped_sed=$(printf "%s" "$escaped" | sed 's/[\\&@]/\\&/g')
-	if grep -q "^export ${key}=" "$ENV_FILE"; then
-		sed -i "s@^export ${key}=.*@export ${key}='${escaped_sed}'@" "$ENV_FILE"
-	else
-		echo "export ${key}='${escaped}'" >> "$ENV_FILE"
-	fi
+require_profiled() {
+  if [ ! -f "$PROFILED_FILE" ]; then
+    err "未安装 Shell 代理快捷命令：$PROFILED_FILE"
+    exit 1
+  fi
 }
 
-set_url() {
-	local url="$1"
-	if [ -z "$url" ]; then
-		echo "[ERROR] 请提供订阅地址" >&2
-		exit 1
-	fi
-	set_env_var "CLASH_URL" "$url"
-	set_env_var "CLASH_SUBSCRIPTION" ""
-	echo "[OK] 已更新 CLASH_URL"
+has_systemd() {
+  command -v systemctl >/dev/null 2>&1
 }
 
-ensure_subscription_file() {
-	mkdir -p "$(dirname "$SUBSCRIPTION_FILE")"
-	if [ ! -f "$SUBSCRIPTION_FILE" ]; then
-		touch "$SUBSCRIPTION_FILE"
-	fi
+service_exists() {
+  has_systemd && systemctl list-unit-files 2>/dev/null | grep -q "^${Service_Name}"
 }
 
-subscription_lookup() {
-	local name="$1"
-	awk -F'|' -v target="$name" '$1 == target {print; exit}' "$SUBSCRIPTION_FILE"
+read_config_value() {
+  local key="$1"
+  local f
+  for f in "$TEMP_CONF_FILE" "$CONF_FILE"; do
+    if [ -f "$f" ]; then
+      sed -nE "s/^[[:space:]]*${key}:[[:space:]]*//p" "$f" \
+        | head -n 1 \
+        | tr -d '\r' \
+        | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
+      return 0
+    fi
+  done
+  return 1
 }
 
-subscription_add() {
-	local name="$1"
-	local url="$2"
-	local headers="${3:-}"
-	if [ -z "$name" ] || [ -z "$url" ]; then
-		echo "[ERROR] 用法: clashctl sub add <name> <url> [headers]" >&2
-		exit 1
-	fi
-	ensure_subscription_file
-	if subscription_lookup "$name" >/dev/null; then
-		echo "[ERROR] 订阅已存在: $name" >&2
-		exit 1
-	fi
-	printf "%s|%s|%s|-\n" "$name" "$url" "$headers" >> "$SUBSCRIPTION_FILE"
-	echo "[OK] 已添加订阅: $name"
+cmd_on() {
+  require_profiled
+  # shellcheck disable=SC1090
+  source "$PROFILED_FILE"
+  proxy_on
 }
 
-subscription_del() {
-	local name="$1"
-	if [ -z "$name" ]; then
-		echo "[ERROR] 用法: clashctl sub del <name>" >&2
-		exit 1
-	fi
-	ensure_subscription_file
-	if ! subscription_lookup "$name" >/dev/null; then
-		echo "[ERROR] 未找到订阅: $name" >&2
-		exit 1
-	fi
-	awk -F'|' -v target="$name" 'BEGIN{OFS=FS} $1 != target {print}' "$SUBSCRIPTION_FILE" > "${SUBSCRIPTION_FILE}.tmp"
-	mv "${SUBSCRIPTION_FILE}.tmp" "$SUBSCRIPTION_FILE"
-	echo "[OK] 已删除订阅: $name"
+cmd_off() {
+  require_profiled
+  # shellcheck disable=SC1090
+  source "$PROFILED_FILE"
+  proxy_off
 }
 
-subscription_use() {
-	local name="$1"
-	if [ -z "$name" ]; then
-		echo "[ERROR] 用法: clashctl sub use <name>" >&2
-		exit 1
-	fi
-	ensure_subscription_file
-	local line
-	line=$(subscription_lookup "$name")
-	if [ -z "$line" ]; then
-		echo "[ERROR] 未找到订阅: $name" >&2
-		exit 1
-	fi
-	local url headers
-	url=$(echo "$line" | awk -F'|' '{print $2}')
-	headers=$(echo "$line" | awk -F'|' '{print $3}')
-	set_env_var "CLASH_URL" "$url"
-	set_env_var "CLASH_HEADERS" "$headers"
-	set_env_var "CLASH_SUBSCRIPTION" "$name"
-	echo "[OK] 已切换订阅: $name"
+cmd_status() {
+  if service_exists; then
+    systemctl --no-pager --full status "$Service_Name" || true
+  else
+    warn "未检测到 systemd 服务，尝试检查进程"
+    ps -ef | grep -E 'clash|mihomo' | grep -v grep || true
+  fi
 }
 
-subscription_touch() {
-	local name="$1"
-	local timestamp
-	timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-	awk -F'|' -v target="$name" -v ts="$timestamp" 'BEGIN{OFS=FS} {if ($1==target) {$4=ts} print}' "$SUBSCRIPTION_FILE" > "${SUBSCRIPTION_FILE}.tmp"
-	mv "${SUBSCRIPTION_FILE}.tmp" "$SUBSCRIPTION_FILE"
+cmd_proxy() {
+  require_profiled
+  # shellcheck disable=SC1090
+  source "$PROFILED_FILE"
+
+  local sub="${1:-status}"
+  case "$sub" in
+    on) proxy_on ;;
+    off) proxy_off ;;
+    status) proxy_status ;;
+    *)
+      err "未知 proxy 子命令: $sub"
+      echo "用法: clashctl proxy [on|off|status]"
+      exit 1
+      ;;
+  esac
 }
 
-subscription_update() {
-	local name="${1:-}"
-	if [ -z "$name" ]; then
-		name=$(awk -F= '/^export CLASH_SUBSCRIPTION=/{print $2}' "$ENV_FILE" | tr -d "'" | tr -d '"')
-	fi
-	if [ -z "$name" ]; then
-		echo "[ERROR] 未指定订阅名称，且 CLASH_SUBSCRIPTION 未设置" >&2
-		exit 1
-	fi
-	subscription_use "$name"
-	run_script update.sh
-	subscription_touch "$name"
-	echo "[OK] 订阅已更新: $name"
+cmd_ui() {
+  local controller host port
+  controller="$(read_config_value "external-controller" || true)"
+  [ -n "${controller:-}" ] || controller="127.0.0.1:9090"
+
+  host="${controller%:*}"
+  port="${controller##*:}"
+
+  case "$host" in
+    0.0.0.0|::|localhost)
+      host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      [ -n "$host" ] || host="127.0.0.1"
+      ;;
+  esac
+
+  printf 'http://%s:%s/ui\n' "$host" "$port"
 }
 
-subscription_list() {
-	ensure_subscription_file
-	local active
-	active=$(awk -F= '/^export CLASH_SUBSCRIPTION=/{print $2}' "$ENV_FILE" | tr -d "'" | tr -d '"')
-	printf "%-20s %-6s %s\n" "NAME" "ACTIVE" "URL"
-	while IFS='|' read -r name url headers updated; do
-		[ -z "$name" ] && continue
-		if [ "$name" = "$active" ]; then
-			printf "%-20s %-6s %s\n" "$name" "yes" "$url"
-		else
-			printf "%-20s %-6s %s\n" "$name" "no" "$url"
-		fi
-	done < "$SUBSCRIPTION_FILE"
+cmd_secret() {
+  local secret
+  secret="$(read_config_value "secret" || true)"
+  if [ -n "${secret:-}" ]; then
+    echo "$secret"
+  else
+    err "未读取到 secret"
+    exit 1
+  fi
 }
 
-subscription_log() {
-	ensure_subscription_file
-	printf "%-20s %s\n" "NAME" "LAST_UPDATE"
-	while IFS='|' read -r name url headers updated; do
-		[ -z "$name" ] && continue
-		printf "%-20s %s\n" "$name" "${updated:--}"
-	done < "$SUBSCRIPTION_FILE"
+cmd_sub() {
+  local subcmd="${1:-show}"
+  case "$subcmd" in
+    show)
+      if [ -f "$ENV_FILE" ]; then
+        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_URL=' "$ENV_FILE" || true
+      else
+        err "未找到 .env"
+        exit 1
+      fi
+      ;;
+    update)
+      if service_exists; then
+        info "重启服务以刷新订阅..."
+        systemctl restart "$Service_Name"
+        ok "订阅刷新完成"
+      elif [ -f "$Server_Dir/restart.sh" ]; then
+        bash "$Server_Dir/restart.sh"
+        ok "订阅刷新完成"
+      else
+        err "未找到 restart.sh"
+        exit 1
+      fi
+      ;;
+    *)
+      err "未知 sub 子命令: $subcmd"
+      echo "用法: clashctl sub [show|update]"
+      exit 1
+      ;;
+  esac
 }
 
-status_fallback() {
-	if [ -f "$PID_FILE" ]; then
-		local pid
-		pid=$(cat "$PID_FILE")
-		if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
-			echo "[OK] Clash 进程运行中 (PID: $pid)"
-			return 0
-		fi
-	fi
-	if pgrep -f "clash-linux-" >/dev/null 2>&1; then
-		echo "[OK] Clash 进程运行中"
-		return 0
-	fi
-	echo "[WARN] 未检测到 Clash 进程"
-	return 1
+cmd_upgrade() {
+  if [ -f "$Server_Dir/update.sh" ]; then
+    bash "$Server_Dir/update.sh"
+  else
+    err "未找到 update.sh"
+    exit 1
+  fi
 }
 
-run_script() {
-	local script="$1"
-	if [ ! -x "$CLASH_HOME/$script" ]; then
-		echo "[ERROR] 未找到脚本: $CLASH_HOME/$script" >&2
-		exit 1
-	fi
-	( cd "$CLASH_HOME" && bash "$CLASH_HOME/$script" )
+write_env_bool() {
+  local key="$1"
+  local value="$2"
+
+  if [ ! -f "$ENV_FILE" ]; then
+    err "未找到 .env"
+    exit 1
+  fi
+
+  if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE"; then
+    sed -i -E "s|^[[:space:]]*(export[[:space:]]+)?${key}=.*$|export ${key}=\"${value}\"|g" "$ENV_FILE"
+  else
+    echo "export ${key}=\"${value}\"" >> "$ENV_FILE"
+  fi
 }
 
-command=${1:-}
-case "$command" in
-	start)
-		action_with_systemd start || run_script start.sh
-		;;
-	stop)
-		action_with_systemd stop || run_script shutdown.sh
-		;;
-	restart)
-		action_with_systemd restart || run_script restart.sh
-		;;
-	status)
-		if use_systemd; then
-			if systemctl status "${SERVICE_NAME}.service" --no-pager; then
-				exit 0
-			fi
-		fi
-		status_fallback
-		;;
-	update)
-		run_script update.sh
-		;;
-	set-url)
-		set_url "${2:-}"
-		;;
-	sub)
-		subcommand="${2:-}"
-		case "$subcommand" in
-			add)
-				subscription_add "${3:-}" "${4:-}" "${5:-}"
-				;;
-			del|delete|rm|remove)
-				subscription_del "${3:-}"
-				;;
-			use)
-				subscription_use "${3:-}"
-				;;
-			update)
-				subscription_update "${3:-}"
-				;;
-			list|ls)
-				subscription_list
-				;;
-			log)
-				subscription_log
-				;;
-			*)
-				echo "[ERROR] 未知订阅命令: $subcommand" >&2
-				print_usage
-				exit 1
-				;;
-		esac
-		;;
-	-h|--help|help|'')
-		print_usage
-		;;
-	*)
-		echo "[ERROR] 未知命令: $command" >&2
-		print_usage
-		exit 1
-		;;
-esac
+cmd_tun() {
+  local subcmd="${1:-status}"
+  case "$subcmd" in
+    status)
+      if [ -f "$ENV_FILE" ]; then
+        grep -E '^[[:space:]]*(export[[:space:]]+)?CLASH_TUN=' "$ENV_FILE" || echo 'CLASH_TUN=未配置'
+      else
+        err "未找到 .env"
+        exit 1
+      fi
+      ;;
+    on)
+      write_env_bool "CLASH_TUN" "true"
+      ok "已写入 CLASH_TUN=true"
+      ;;
+    off)
+      write_env_bool "CLASH_TUN" "false"
+      ok "已写入 CLASH_TUN=false"
+      ;;
+    *)
+      err "未知 tun 子命令: $subcmd"
+      echo "用法: clashctl tun [on|off|status]"
+      exit 1
+      ;;
+  esac
+}
+
+cmd_mixin() {
+  local subcmd="${1:-status}"
+  local mixin_file="$Server_Dir/conf/mixin.yaml"
+
+  case "$subcmd" in
+    status)
+      if [ -f "$mixin_file" ]; then
+        ok "Mixin 已存在: $mixin_file"
+      else
+        warn "Mixin 不存在: $mixin_file"
+      fi
+      ;;
+    edit)
+      ${EDITOR:-vi} "$mixin_file"
+      ;;
+    *)
+      err "未知 mixin 子命令: $subcmd"
+      echo "用法: clashctl mixin [status|edit]"
+      exit 1
+      ;;
+  esac
+}
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+
+  case "$cmd" in
+    on) cmd_on "$@" ;;
+    off) cmd_off "$@" ;;
+    status) cmd_status "$@" ;;
+    proxy) cmd_proxy "$@" ;;
+    ui) cmd_ui "$@" ;;
+    secret) cmd_secret "$@" ;;
+    sub) cmd_sub "$@" ;;
+    upgrade) cmd_upgrade "$@" ;;
+    tun) cmd_tun "$@" ;;
+    mixin) cmd_mixin "$@" ;;
+    -h|--help|"") usage ;;
+    *)
+      err "未知命令: $cmd"
+      echo
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
