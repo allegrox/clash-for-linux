@@ -1,7 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+resolve_project_dir() {
+  # 1) 显式指定优先
+  if [ -n "${CLASH_INSTALL_DIR:-}" ] && [ -d "${CLASH_INSTALL_DIR:-}" ]; then
+    printf '%s\n' "$CLASH_INSTALL_DIR"
+    return 0
+  fi
+
+  # 2) 解析脚本真实路径（兼容软链/安装到 /usr/local/bin）
+  local src dir
+  src="${BASH_SOURCE[0]}"
+
+  while [ -L "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$dir/$src"
+  done
+
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+
+  # 如果 clashctl 就在项目根目录
+  if [ -f "$dir/scripts/service_lib.sh" ]; then
+    printf '%s\n' "$dir"
+    return 0
+  fi
+
+  # 3) 常见安装目录兜底
+  for candidate in \
+    "/opt/clash-for-linux" \
+    "$HOME/clash-for-linux" \
+    "/root/clash-for-linux"
+  do
+    if [ -f "$candidate/scripts/service_lib.sh" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  echo "[ERROR] Unable to locate project directory" >&2
+  exit 1
+}
+
+PROJECT_DIR="$(resolve_project_dir)"
 SERVICE_NAME="clash-for-linux.service"
 PROFILED_FILE="/etc/profile.d/clash-for-linux.sh"
 ENV_FILE="$PROJECT_DIR/.env"
