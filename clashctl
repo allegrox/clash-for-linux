@@ -49,6 +49,7 @@ ENV_FILE="$PROJECT_DIR/.env"
 RUNTIME_DIR="$PROJECT_DIR/runtime"
 RUNTIME_CONFIG="$RUNTIME_DIR/config.yaml"
 STATE_FILE="$RUNTIME_DIR/state.env"
+LOG_FILE="$PROJECT_DIR/logs/clash.log"
 
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/scripts/service_lib.sh"
@@ -83,6 +84,7 @@ Utility Commands:
   tun status|on|off      查看/启用/关闭 Tun
   mixin status|on|off    查看/启用/关闭 Mixin
   doctor                 健康检查
+  logs [-f] [-n 100]     查看日志
 
 Options:
   --from-systemd         内部使用，避免 stop 递归调用 systemctl
@@ -711,6 +713,71 @@ cmd_doctor() {
   return 0
 }
 
+cmd_logs() {
+  local follow="false"
+  local lines="50"
+  local mode
+  local arg
+
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      -f|--follow)
+        follow="true"
+        ;;
+      -n|--lines)
+        shift || true
+        if [ $# -eq 0 ]; then
+          err "logs: -n/--lines 需要一个数字参数"
+          exit 1
+        fi
+        lines="$1"
+        ;;
+      *)
+        err "未知 logs 参数: $arg"
+        echo "用法: clashctl logs [-f] [-n 100]"
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+
+  mode="$(detect_mode)"
+
+  case "$mode" in
+    systemd|systemd-installed)
+      if ! command -v journalctl >/dev/null 2>&1; then
+        err "未找到 journalctl，无法读取 systemd 日志"
+        exit 1
+      fi
+
+      if [ "$follow" = "true" ]; then
+        journalctl -u "$SERVICE_NAME" -n "$lines" -f
+      else
+        journalctl -u "$SERVICE_NAME" -n "$lines" --no-pager
+      fi
+      ;;
+    script|none)
+      if [ ! -f "$LOG_FILE" ]; then
+        warn "未找到日志文件: $LOG_FILE"
+        exit 0
+      fi
+
+      if [ "$follow" = "true" ]; then
+        tail -n "$lines" -f "$LOG_FILE"
+      else
+        tail -n "$lines" "$LOG_FILE"
+      fi
+      ;;
+    *)
+      err "未知模式: $mode"
+      exit 1
+      ;;
+  esac
+}
+
 main() {
   local from_systemd="false"
 
@@ -768,6 +835,9 @@ main() {
       ;;
 	doctor)
       cmd_doctor
+      ;;
+	logs)
+      cmd_logs "$@"
       ;;
     ""|-h|--help)
       usage
