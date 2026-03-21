@@ -73,6 +73,8 @@ Commands:
   restart                重新生成配置并重启
   status                 查看当前状态
   generate               仅生成配置，不启动
+  update                 拉取当前分支最新代码并重新生成配置、重启服务
+  update-force           强制覆盖本地修改后更新并重启
   mode                   查看当前运行模式（systemd/script/none）
   ui                     输出 Dashboard 地址
   secret                 输出当前 secret
@@ -188,6 +190,14 @@ check_dashboard_http() {
   return 2
 }
 
+has_git_repo() {
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+get_current_branch() {
+  git -C "$PROJECT_DIR" branch --show-current 2>/dev/null
+}
+
 cmd_on() {
   require_profiled
   # shellcheck disable=SC1090
@@ -260,6 +270,108 @@ cmd_stop() {
       exit 1
       ;;
   esac
+}
+
+cmd_update() {
+  local branch remote_name dirty
+
+  if ! has_git_repo; then
+    err "当前目录不是 Git 仓库: $PROJECT_DIR"
+    exit 1
+  fi
+
+  branch="$(get_current_branch)"
+  if [ -z "${branch:-}" ]; then
+    err "无法识别当前分支"
+    exit 1
+  fi
+
+  remote_name="origin"
+
+  dirty="$(git -C "$PROJECT_DIR" status --porcelain --untracked-files=no)"
+  if [ -n "${dirty:-}" ]; then
+    err "检测到本地已修改但未提交的文件，已停止更新"
+    echo "请先提交、stash 或恢复后再执行 clashctl update" >&2
+    exit 1
+  fi
+
+  echo "[INFO] pulling latest code from ${remote_name}/${branch} ..."
+  if ! git -C "$PROJECT_DIR" pull --ff-only "$remote_name" "$branch"; then
+    err "git pull 失败"
+    exit 1
+  fi
+
+  echo "[INFO] regenerating config ..."
+  if ! "$PROJECT_DIR/scripts/generate_config.sh"; then
+    err "配置生成失败"
+    exit 1
+  fi
+
+  echo "[INFO] restarting service ..."
+  if has_systemd; then
+    if ! systemctl restart clash-for-linux.service; then
+      err "systemd 重启失败"
+      exit 1
+    fi
+  else
+    if ! "$PROJECT_DIR/scripts/run_clash.sh" --daemon; then
+      err "脚本模式启动失败"
+      exit 1
+    fi
+  fi
+
+  ok "更新完成"
+  cmd_status
+}
+
+cmd_update_force() {
+  local branch remote_name
+
+  if ! has_git_repo; then
+    err "当前目录不是 Git 仓库: $PROJECT_DIR"
+    exit 1
+  fi
+
+  branch="$(get_current_branch)"
+  if [ -z "${branch:-}" ]; then
+    err "无法识别当前分支"
+    exit 1
+  fi
+
+  remote_name="origin"
+
+  echo "[WARN] force update: local changes will be discarded"
+  git -C "$PROJECT_DIR" fetch "$remote_name" "$branch" || {
+    err "git fetch 失败"
+    exit 1
+  }
+
+  git -C "$PROJECT_DIR" reset --hard "${remote_name}/${branch}" || {
+    err "git reset --hard 失败"
+    exit 1
+  }
+
+  echo "[INFO] regenerating config ..."
+  if ! "$PROJECT_DIR/scripts/generate_config.sh"; then
+    err "配置生成失败"
+    exit 1
+  fi
+
+  echo "[INFO] restarting service ..."
+  if has_systemd; then
+    systemctl restart clash-for-linux.service || {
+      err "systemd 重启失败"
+      exit 1
+    }
+  else
+    "$PROJECT_DIR/scripts/run_clash.sh" --daemon || {
+      err "脚本模式启动失败"
+      exit 1
+    }
+  fi
+
+  ok "强制更新完成"
+  cmd_status
 }
 
 cmd_restart() {
@@ -861,6 +973,14 @@ main() {
     sub)
       shift || true
       cmd_sub "${1:-show}"
+      ;;
+    update)
+      shift
+      cmd_update "$@"
+      ;;
+    update-force)
+      shift
+      cmd_update_force "$@"
       ;;
     tun)
       shift || true
