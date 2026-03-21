@@ -61,25 +61,43 @@ fi
 # =========================
 # 安装 clashctl
 # =========================
-install -m 0755 "$Install_Dir/clashctl" /usr/local/bin/clashctl
+ln -sf "$Install_Dir/clashctl" /usr/local/bin/clashctl
+chmod +x "$Install_Dir/clashctl"
 
 # =========================
 # 安装 proxy helper
 # =========================
 cat >/etc/profile.d/clash-for-linux.sh <<EOF
+# clash-for-linux proxy helpers
+
+CLASH_INSTALL_DIR="${Install_Dir}"
+ENV_FILE="\${CLASH_INSTALL_DIR}/.env"
+
+if [ -f "\$ENV_FILE" ]; then
+  set +u
+  . "\$ENV_FILE" >/dev/null 2>&1 || true
+  set -u
+fi
+
+CLASH_LISTEN_IP="\${CLASH_LISTEN_IP:-127.0.0.1}"
+CLASH_HTTP_PORT="\${CLASH_HTTP_PORT:-7890}"
+CLASH_SOCKS_PORT="\${CLASH_SOCKS_PORT:-7891}"
+
 proxy_on() {
-  local port="\${1:-7890}"
-  export http_proxy="http://127.0.0.1:\${port}"
-  export https_proxy="\$http_proxy"
-  export HTTP_PROXY="\$http_proxy"
-  export HTTPS_PROXY="\$http_proxy"
-  export no_proxy="127.0.0.1,localhost"
-  export NO_PROXY="\$no_proxy"
-  echo "[OK] Proxy enabled: \$http_proxy"
+  export http_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  export https_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  export HTTP_PROXY="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  export HTTPS_PROXY="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
+  export all_proxy="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
+  export ALL_PROXY="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
+  export no_proxy="127.0.0.1,localhost,::1"
+  export NO_PROXY="127.0.0.1,localhost,::1"
+  echo "[OK] Proxy enabled: http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
 }
 
 proxy_off() {
-  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+  unset all_proxy ALL_PROXY no_proxy NO_PROXY
   echo "[OK] Proxy disabled"
 }
 EOF
