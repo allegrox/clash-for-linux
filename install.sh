@@ -63,15 +63,6 @@ ui_ok "[2/3] 生成配置..."
 
 source "$Install_Dir/.env"
 
-if [ -z "${CLASH_SECRET:-}" ]; then
-  if command -v openssl >/dev/null 2>&1; then
-    CLASH_SECRET="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 16)"
-  else
-    CLASH_SECRET="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
-  fi
-  write_env_value "CLASH_SECRET" "$CLASH_SECRET"
-fi
-
 # ui_ok ".env 配置已加载"
 
 # shellcheck disable=SC1090
@@ -110,6 +101,16 @@ write_env_value() {
     printf "export %s='%s'\n" "$key" "$value" >> "$env_file"
   fi
 }
+
+
+if [ -z "${CLASH_SECRET:-}" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    CLASH_SECRET="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 16)"
+  else
+    CLASH_SECRET="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+  fi
+  write_env_value "CLASH_SECRET" "$CLASH_SECRET"
+fi
 
 read_env_value() {
   local key="$1"
