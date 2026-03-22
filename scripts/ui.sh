@@ -306,7 +306,7 @@ ui_summary_end() {
 
   # 标题
   printf '%s' "$BOX_V"
-  _ui_pad_right " $__ui_summary_title " "$border_width"
+  _ui_pad_center " $__ui_summary_title " "$border_width"
   printf '%s\n' "$BOX_V"
 
   # 分隔线
@@ -325,6 +325,25 @@ ui_summary_end() {
   printf '%s' "$BOX_BL"
   ui_repeat "$BOX_H" "$border_width"
   printf '%s\n' "$BOX_BR"
+}
+
+_ui_pad_center() {
+  local text="$1"
+  local width="$2"
+  local len pad left right
+
+  len="$(_ui_display_width "$text")"
+  pad=$((width - len))
+
+  if [ "$pad" -le 0 ]; then
+    printf '%s' "$text"
+    return
+  fi
+
+  left=$((pad / 2))
+  right=$((pad - left))
+
+  printf '%*s%s%*s' "$left" '' "$text" "$right" ''
 }
 
 # ---------- section blocks ----------
