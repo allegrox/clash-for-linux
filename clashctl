@@ -527,6 +527,13 @@ cmd_update() {
   chmod +x "$PROJECT_DIR"/bin/* 2>/dev/null || true
   sed -i 's/\r$//' "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
 
+  ui_info "正在停止旧实例 ..."
+  if has_systemd; then
+    systemctl stop clash-for-linux.service >/dev/null 2>&1 || true
+  else
+    "$PROJECT_DIR/scripts/stop_clash.sh" >/dev/null 2>&1 || true
+  fi
+
   local regen_result=0
   if safe_regenerate_config; then
     regen_result=0
@@ -539,10 +546,10 @@ cmd_update() {
     exit 1
   fi
 
-  ui_info "正在重启服务 ..."
+  ui_info "正在启动服务 ..."
   if has_systemd; then
-    if ! systemctl restart clash-for-linux.service; then
-      err "systemd 重启失败"
+    if ! systemctl start clash-for-linux.service; then
+      err "systemd 启动失败"
       exit 1
     fi
 
