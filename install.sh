@@ -13,30 +13,31 @@ Service_Group="root"
 # =========================
 # 基础校验
 # =========================
-ui_header "clashctl install"
+ui_header "clashctl 安装"
 
-ui_step "[1/5] Preflight checks"
+ui_step "[1/5] 环境检查"
 
 if [ "$(id -u)" -ne 0 ]; then
-  die "root privilege required"
+  die "需要 root 权限"
 fi
-ui_ok "root privilege confirmed"
+ui_ok "已确认 root 权限"
 
 if [ ! -f "${Server_Dir}/.env" ]; then
   die_with_reason \
-    ".env not found" \
-    "missing file: ${Server_Dir}/.env" \
-    "ensure project directory is complete"
+    ".env 文件不存在" \
+    "缺少文件: ${Server_Dir}/.env" \
+    "请确认项目目录完整"
 fi
-ui_ok ".env file found"
+ui_ok "已检测到 .env 配置文件"
 
 # =========================
 # 同步文件
 # =========================
 ui_blank
-ui_step "[2/5] Prepare directories"
+ui_step "[2/5] 初始化目录"
+
 mkdir -p "$Install_Dir"
-ui_ok "install dir ready: $Install_Dir"
+ui_ok "安装目录已就绪: $Install_Dir"
 
 chmod +x "$Install_Dir"/clashctl 2>/dev/null || true
 chmod +x "$Install_Dir"/scripts/* 2>/dev/null || true
@@ -50,43 +51,43 @@ mkdir -p \
   "$Install_Dir/logs" \
   "$Install_Dir/config/mixin.d"
 
-ui_ok "runtime directory ready"
-ui_ok "logs directory ready"
-ui_ok "mixin directory ready"
+ui_ok "runtime 目录已创建"
+ui_ok "logs 目录已创建"
+ui_ok "mixin 目录已创建"
 
 # =========================
 # 加载 env
 # =========================
 # shellcheck disable=SC1090
 ui_blank
-ui_step "[3/5] Load environment"
+ui_step "[3/5] 加载配置"
 
 source "$Install_Dir/.env"
 
-ui_ok ".env loaded"
+ui_ok ".env 配置已加载"
 
 # shellcheck disable=SC1090
 source "$Install_Dir/scripts/get_cpu_arch.sh"
 
-ui_ok "cpu arch detected: ${CpuArch:-unknown}"
+ui_ok "CPU 架构识别成功: ${CpuArch:-unknown}"
 
 # shellcheck disable=SC1090
 source "$Install_Dir/scripts/resolve_clash.sh"
 
 ui_blank
-ui_step "[4/5] Prepare core"
+ui_step "[4/5] 准备内核"
 
 if ! bash "$Install_Dir/scripts/resolve_clash.sh"; then
-  ui_error "failed to prepare clash core"
+  ui_error "Clash 内核准备失败"
   ui_fix_block \
-    "resolve_clash.sh returned non-zero" \
-    "check download URL and network connectivity"
+    "resolve_clash.sh 执行失败" \
+    "请检查下载地址或网络连接"
   ui_debug_block \
     "bash $Install_Dir/scripts/resolve_clash.sh"
   exit 1
 fi
 
-ui_ok "clash core ready"
+ui_ok "Clash 内核已就绪"
 
 write_env_value() {
   local key="$1"
@@ -180,34 +181,46 @@ prompt_and_apply_subscription() {
   local sub_url=""
   local secret=""
   local public_ip=""
+  local retry_choice=""
 
   while true; do
     echo
     ui_subheader "订阅设置"
-    read -r -p "请输入要添加的订阅链接：" sub_url
+    read -r -p "请输入要添加的订阅链接（直接回车可跳过）：" sub_url
 
     if [ -z "${sub_url:-}" ]; then
-      ui_error "❌ 订阅链接不能为空"
-      continue
+      ui_warn "已跳过订阅设置，可稍后使用 clashctl sub 进行配置"
+      return 0
     fi
 
     write_env_value "CLASH_URL" "$sub_url"
 
-    echo "⏳ 正在下载订阅..."
-    echo "🍃 验证订阅配置..."
+    ui_info "正在下载订阅..."
+    ui_info "正在校验订阅配置..."
+
     if ! "$Install_Dir/scripts/generate_config.sh" >/dev/null 2>&1; then
-      ui_error "❌ 订阅不可用或转换失败，请检查链接后重试"
-      continue
+      ui_error "订阅不可用或转换失败"
+
+      read -r -p "是否重新输入订阅链接？[Y/n]: " retry_choice
+      case "${retry_choice:-Y}" in
+        n|N)
+          ui_warn "已跳过订阅设置，可稍后使用 clashctl sub 进行配置"
+          return 0
+          ;;
+        *)
+          continue
+          ;;
+      esac
     fi
-    
-    ui_ok "🎉 订阅已添加：[1] $sub_url"
-    ui_ok "🔥 订阅已生效"
 
     if command -v systemctl >/dev/null 2>&1; then
       systemctl restart "${Service_Name}.service"
     else
       "$Install_Dir/scripts/run_clash.sh" --daemon
     fi
+
+    ui_ok "订阅添加成功：[1] $sub_url"
+    ui_ok "订阅已生效"
 
     secret="$(read_env_value "CLASH_SECRET")"
     public_ip="$(get_public_ip)"
