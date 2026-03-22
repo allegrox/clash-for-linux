@@ -286,22 +286,55 @@ cmd_stop() {
   esac
 }
 
-safe_regenerate_config() {
-  local config_file="$PROJECT_DIR/runtime/config.yaml"
+show_update_result_summary() {
+  [ -n "${LAST_CONFIG_RESULT:-}" ] || return 0
 
-  echo "[INFO] 正在重新生成配置 ..."
-  if bash "$PROJECT_DIR/scripts/generate_config.sh"; then
+  echo
+  ui_subheader "配置更新结果"
+
+  if [ "$LAST_CONFIG_RESULT" = "success" ]; then
+    echo "  状态     : 已成功更新配置"
     return 0
   fi
 
-  echo "[WARN] 配置重新生成失败，可能是订阅不可用或网络异常"
+  echo "  状态     : 失败（已沿用旧配置）"
+  [ -n "$LAST_CONFIG_REASON" ] && echo "  原因     : $LAST_CONFIG_REASON"
+  [ -n "$LAST_CONFIG_HINT" ] && echo "  建议     : $LAST_CONFIG_HINT"
+}
+
+safe_regenerate_config() {
+  local config_file="$PROJECT_DIR/runtime/config.yaml"
+
+  LAST_CONFIG_RESULT="success"
+  LAST_CONFIG_REASON=""
+  LAST_CONFIG_HINT=""
+
+  echo "[INFO] 正在重新生成配置 ..."
+  if bash "$PROJECT_DIR/scripts/generate_config.sh" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  LAST_CONFIG_RESULT="failed"
+
+  case "$(read_state_value reason 2>/dev/null || true)" in
+    url_invalid)
+      LAST_CONFIG_REASON="订阅链接格式错误"
+      LAST_CONFIG_HINT="必须以 http:// 或 https:// 开头"
+      ;;
+    url_missing)
+      LAST_CONFIG_REASON="未配置订阅链接"
+      LAST_CONFIG_HINT="请先设置 CLASH_URL"
+      ;;
+    *)
+      LAST_CONFIG_REASON="订阅不可用或配置生成失败"
+      LAST_CONFIG_HINT="请检查订阅链接和网络连接"
+      ;;
+  esac
 
   if [ -s "$config_file" ]; then
-    echo "[WARN] 检测到已有可用配置，继续沿用当前配置"
     return 2
   fi
 
-  echo "[ERROR] 未找到可用的本地配置，无法继续"
   return 1
 }
 
@@ -415,6 +448,7 @@ cmd_update() {
 
     if [ "$regen_result" -eq 2 ]; then
       ok "代码已更新，当前继续使用旧配置运行"
+      show_update_result_summary
     else
       ok "更新完成"
     fi
@@ -887,16 +921,18 @@ cmd_status() {
   ui_summary_end
 
   ui_blank
-  ui_summary_begin "配置与运行"
-  ui_summary_row "生成状态" "$generate_status"
-  ui_summary_row "失败原因" "$generate_reason"
-  ui_summary_row "配置来源" "$config_source"
-  ui_summary_row "生成时间" "$generate_at"
-  ui_summary_row "运行结果" "$run_status"
-  ui_summary_row "运行方式" "$run_mode"
-  ui_summary_row "运行进程" "$run_pid"
-  ui_summary_row "启动时间" "$run_at"
-  ui_summary_end
+  if [ -n "$gen_status$gen_reason$config_source$gen_time$run_result$run_mode$run_pid$start_time" ]; then
+    ui_summary_begin "配置与运行"
+    [ -n "$gen_status" ]   && ui_summary_row "生成状态" "$gen_status"
+    [ -n "$gen_reason" ]   && ui_summary_row "失败原因" "$gen_reason"
+    [ -n "$config_source" ] && ui_summary_row "配置来源" "$config_source"
+    [ -n "$gen_time" ]     && ui_summary_row "生成时间" "$gen_time"
+    [ -n "$run_result" ]   && ui_summary_row "运行结果" "$run_result"
+    [ -n "$run_mode" ]     && ui_summary_row "运行方式" "$run_mode"
+    [ -n "$run_pid" ]      && ui_summary_row "运行进程" "$run_pid"
+    [ -n "$start_time" ]   && ui_summary_row "启动时间" "$start_time"
+    ui_summary_end
+  fi
 
   ui_blank
   ui_summary_begin "端口与面板"
