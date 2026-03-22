@@ -8,7 +8,6 @@
 # ---------- env ----------
 : "${CLASHCTL_ASCII:=0}"
 : "${UI_WIDTH:=0}"
-: "${UI_SUMMARY_KEY_WIDTH:=12}"
 
 # ---------- color ----------
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -257,74 +256,78 @@ _ui_wrap_print() {
 }
 
 # ---------- summary box ----------
-ui_summary_begin() {
-    local title="${1:-摘要}"
-    local inner box_width
+__ui_summary_title=""
+__ui_summary_rows=()
 
-    inner="$(_ui_summary_inner_width)"
-    box_width=$((inner - 2))
+_ui_summary_calc_width() {
+  local max_len=0
+  local line len
+  local title_line
+  local min_width=24
+  local max_width
 
-    printf '%s' "$BOX_TL"
-    ui_repeat "$BOX_H" "$inner"
-    printf '%s\n' "$BOX_TR"
+  title_line=" $__ui_summary_title "
+  max_len="$(_ui_display_width "$title_line")"
 
-    printf '%s ' "$BOX_V"
-    _ui_pad_right "$title" "$box_width"
-    printf ' %s\n' "$BOX_V"
+  for line in "${__ui_summary_rows[@]}"; do
+    len="$(_ui_display_width "$line")"
+    [ "$len" -gt "$max_len" ] && max_len="$len"
+  done
 
-    printf '%s' "$BOX_JL"
-    ui_repeat "$BOX_H" "$inner"
-    printf '%s\n' "$BOX_JR"
+  [ "$max_len" -lt "$min_width" ] && max_len="$min_width"
+
+  # 仍然保留一个上限，避免超长内容把终端撑爆
+  max_width="$(_ui_summary_inner_width)"
+  [ "$max_len" -gt "$max_width" ] && max_len="$max_width"
+
+  printf '%s\n' "$max_len"
 }
+
+ui_summary_begin() {
+  __ui_summary_title="${1:-摘要}"
+  __ui_summary_rows=()
+}
+
 
 ui_summary_row() {
   local key="$1"
   local value="$2"
-  local inner content_width prefix prefix_width rest avail first_line line_prefix
+  local line
 
-  inner="$(_ui_summary_inner_width)"
-  content_width=$((inner - 2))
-
-  prefix=$(printf ' %-*s : ' "$UI_SUMMARY_KEY_WIDTH" "$key")
-  prefix_width="$(_ui_display_width "$prefix")"
-
-  if [ "$prefix_width" -ge "$content_width" ]; then
-    prefix=" "
-    prefix_width=1
+  if [ -n "${value:-}" ]; then
+    line="${key} : ${value}"
+  else
+    line="${key} :"
   fi
 
-  rest="${value:-}"
-  avail=$((content_width - prefix_width))
-  [ "$avail" -le 8 ] && avail=8
-
-  if [ -z "$rest" ]; then
-    printf '%s ' "$BOX_V"
-    _ui_pad_right "$prefix" "$content_width"
-    printf ' %s\n' "$BOX_V"
-    return 0
-  fi
-
-  # 第一行
-  first_line="${rest:0:$avail}"
-  printf '%s ' "$BOX_V"
-  _ui_pad_right "${prefix}${first_line}" "$content_width"
-  printf ' %s\n' "$BOX_V"
-  rest="${rest:$avail}"
-
-  # 后续换行
-  line_prefix="$(printf '%*s' "$prefix_width" '')"
-  while [ -n "$rest" ]; do
-    local chunk="${rest:0:$avail}"
-    printf '%s ' "$BOX_V"
-    _ui_pad_right "${line_prefix}${chunk}" "$content_width"
-    printf ' %s\n' "$BOX_V"
-    rest="${rest:$avail}"
-  done
+  __ui_summary_rows+=("$line")
 }
 
 ui_summary_end() {
   local inner
-  inner="$(_ui_summary_inner_width)"
+  local line
+  local width
+
+  width="$(_ui_summary_calc_width)"
+  inner="$width"
+
+  printf '%s' "$BOX_TL"
+  ui_repeat "$BOX_H" "$inner"
+  printf '%s\n' "$BOX_TR"
+
+  printf '%s' "$BOX_V"
+  _ui_pad_right " $__ui_summary_title " "$inner"
+  printf '%s\n' "$BOX_V"
+
+  printf '%s' "$BOX_JL"
+  ui_repeat "$BOX_H" "$inner"
+  printf '%s\n' "$BOX_JR"
+
+  for line in "${__ui_summary_rows[@]}"; do
+    printf '%s' "$BOX_V"
+    _ui_pad_right " $line " "$inner"
+    printf '%s\n' "$BOX_V"
+  done
 
   printf '%s' "$BOX_BL"
   ui_repeat "$BOX_H" "$inner"
