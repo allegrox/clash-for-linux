@@ -182,7 +182,7 @@ show_dashboard_info() {
   ui_summary_row "☁️ 公共" "$custom_ui"
   ui_summary_row ""
   ui_summary_row "🌏 公网" "$public_ui"
-  ui_summary_row "😼 当前密钥" "$secret"
+  ui_summary_row "😼 密钥" "$secret"
   ui_summary_end
 }
 
