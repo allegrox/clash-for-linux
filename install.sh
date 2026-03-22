@@ -107,6 +107,40 @@ read_env_value() {
   sed -nE "s/^[[:space:]]*(export[[:space:]]+)?${key}=['\"]?([^'\"]*)['\"]?$/\2/p" "$Install_Dir/.env" | head -n 1
 }
 
+mask_secret() {
+  local s="$1"
+  local len=${#s}
+
+  [ -z "$s" ] && return 0
+
+  if [ "$len" -le 8 ]; then
+    printf '%s\n' '********'
+    return 0
+  fi
+
+  printf '%s****%s\n' "${s:0:4}" "${s: -4}"
+}
+
+get_display_secret() {
+  local secret="$1"
+
+  case "${CLASH_SHOW_SECRET:-false}" in
+    true|TRUE|1|yes|YES)
+      printf '%s\n' "$secret"
+      return 0
+      ;;
+  esac
+
+  case "${CLASH_SHOW_SECRET_MASKED:-true}" in
+    true|TRUE|1|yes|YES)
+      mask_secret "$secret"
+      return 0
+      ;;
+  esac
+
+  printf '%s\n' ""
+}
+
 get_public_ip() {
   curl -fsS --max-time 5 ifconfig.me 2>/dev/null \
     || curl -fsS --max-time 5 ip.sb 2>/dev/null \
@@ -147,46 +181,30 @@ EOF
 }
 
 show_dashboard_info() {
-  local config_file="$Install_Dir/runtime/config.yaml"
+  local secret="$1"
+  local public_ip="$2"
 
-  local controller_addr=""
-  local secret=""
-  local host=""
-  local port=""
+  local controller_addr="${EXTERNAL_CONTROLLER:-127.0.0.1:9090}"
+  local host="${controller_addr%:*}"
+  local port="${controller_addr##*:}"
+
   local lan_ip=""
-  local public_ip=""
-  local local_ui=""
+  lan_ip="$(get_lan_ip)"
+
+  local local_ui="http://127.0.0.1:${port}/ui"
   local lan_ui=""
   local public_ui=""
+  local custom_ui="${CLASH_DASHBOARD_PUBLIC_URL:-}"
 
-  [ -f "$config_file" ] || return 0
-
-  # 从最终配置读取（关键）
-  controller_addr="$(sed -n 's/^external-controller:[[:space:]]*//p' "$config_file" | head -n1 | tr -d '"' | tr -d "'")"
-  secret="$(sed -n 's/^secret:[[:space:]]*//p' "$config_file" | head -n1 | tr -d '"' | tr -d "'")"
-
-  [ -n "$controller_addr" ] || controller_addr="127.0.0.1:9090"
-
-  host="${controller_addr%:*}"
-  port="${controller_addr##*:}"
-
-  lan_ip="$(get_lan_ip)"
-  public_ip="$(get_public_ip)"
-
-  local_ui="http://127.0.0.1:${port}/ui"
   [ -n "$lan_ip" ] && lan_ui="http://${lan_ip}:${port}/ui"
-
-  # ✅ 只有对外监听才显示公网
-  if [ "$host" = "0.0.0.0" ] || [ "$host" = "::" ]; then
-    [ -n "$public_ip" ] && public_ui="http://${public_ip}:${port}/ui"
-  fi
+  [ -n "$public_ip" ] && public_ui="http://${public_ip}:${port}/ui"
 
   ui_blank
   ui_summary_begin "😼 Clash Web 控制台"
   ui_summary_row "🔓 注意放行端口" "$port"
   [ -n "$lan_ui" ] && ui_summary_row "💻 内网" "$lan_ui"
+  [ -n "$custom_ui" ] && ui_summary_row "🌐 公共" "$custom_ui"
   [ -n "$public_ui" ] && ui_summary_row "🌏 公网" "$public_ui"
-  ui_summary_row "🖥 本机" "$local_ui"
   [ -n "$secret" ] && ui_summary_row "🔑 密钥" "$secret"
   ui_summary_end
 }
