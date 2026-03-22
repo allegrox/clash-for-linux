@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! declare -f ui_info >/dev/null 2>&1; then
+  # shellcheck source=scripts/ui.sh
+  source "$PROJECT_DIR/scripts/ui.sh"
+fi
+
 # 作用：
 # - 将订阅内容转换为 Clash Meta / Mihomo 可用的完整 YAML 配置
 # - 默认使用 subconverter HTTP /sub 接口（最稳：使用 -G + --data-urlencode）

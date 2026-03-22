@@ -4,6 +4,7 @@ set -euo pipefail
 Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/ui.sh
 . "$Server_Dir/scripts/ui.sh"
+
 Install_Dir="${CLASH_INSTALL_DIR:-$Server_Dir}"
 
 Service_Name="clash-for-linux"

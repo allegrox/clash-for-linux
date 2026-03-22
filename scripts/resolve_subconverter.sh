@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! declare -f ui_info >/dev/null 2>&1; then
+  # shellcheck source=scripts/ui.sh
+  source "$PROJECT_DIR/scripts/ui.sh"
+fi
+
+
 # 作用：
 # - 根据 OS/ARCH 选择 tools/subconverter/<platform>/subconverter
 # - 生成稳定入口 tools/subconverter/subconverter（优先软链接，失败则复制）
@@ -33,9 +41,6 @@ SUBCONVERTER_PREF="${SUBCONVERTER_PREF:-$SC_DIR/pref.ini}"
 PREF_EXAMPLE_INI="$SC_DIR/pref.example.ini"
 
 PID_FILE="$Temp_Dir/subconverter.pid"
-
-log()  { echo "[subc] $*"; }
-warn() { echo "[subc][警告] $*" >&2; }
 
 detect_os() {
   local u
@@ -111,7 +116,7 @@ main() {
   arch="$(detect_arch)"
 
   if [ "$os" = "unsupported" ]; then
-    warn "不支持的操作系统: $(uname -s)，跳过 subconverter"
+    ui_warn "不支持的操作系统: $(uname -s)，跳过 subconverter"
     Subconverter_Ready=false
     export Subconverter_Bin Subconverter_Ready SUBCONVERTER_BIN SUBCONVERTER_READY SUBCONVERTER_URL
     true
@@ -119,7 +124,7 @@ main() {
   fi
 
   if [ "$arch" = "unknown" ]; then
-    warn "不支持的架构: $(uname -m)，跳过 subconverter"
+    ui_warn "不支持的架构: $(uname -m)，跳过 subconverter"
     Subconverter_Ready=false
     export Subconverter_Bin Subconverter_Ready SUBCONVERTER_BIN SUBCONVERTER_READY SUBCONVERTER_URL
     true
@@ -128,7 +133,7 @@ main() {
 
   platform_bin="$(pick_platform_bin "$os" "$arch")"
   if [ -z "$platform_bin" ]; then
-    warn "未找到 subconverter 二进制: $SC_DIR/${os}-${arch}/subconverter"
+    ui_warn "未找到 subconverter 二进制: $SC_DIR/${os}-${arch}/subconverter"
     Subconverter_Ready=false
     export Subconverter_Bin Subconverter_Ready SUBCONVERTER_BIN SUBCONVERTER_READY SUBCONVERTER_URL
     true
@@ -137,7 +142,7 @@ main() {
 
   # 2) 创建稳定入口
   if ! make_stable_link_or_copy "$platform_bin"; then
-    warn "创建稳定入口失败: $SC_LINK"
+    ui_warn "创建稳定入口失败: $SC_LINK"
     Subconverter_Ready=false
     export Subconverter_Bin Subconverter_Ready SUBCONVERTER_BIN SUBCONVERTER_READY SUBCONVERTER_URL
     true
@@ -146,7 +151,7 @@ main() {
 
   Subconverter_Bin="$SC_LINK"
   Subconverter_Ready=true
-  log "已解析平台二进制: ${os}-${arch} -> $Subconverter_Bin"
+  ui_info "已解析平台二进制: ${os}-${arch} -> $Subconverter_Bin"
 
   # 3) 生成 pref.ini（仅 daemon 模式）
   if [ "$Subconverter_Ready" = "true" ] && [ "$SUBCONVERTER_MODE" = "daemon" ]; then

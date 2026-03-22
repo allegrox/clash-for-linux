@@ -1,5 +1,12 @@
 # Clash shell helpers
 
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! declare -f ui_info >/dev/null 2>&1; then
+  # shellcheck source=scripts/ui.sh
+  source "$PROJECT_DIR/scripts/ui.sh"
+fi
+
 CLASH_INSTALL_DIR="${CLASH_INSTALL_DIR:-/root/clash-for-linux}"
 ENV_FILE="${CLASH_INSTALL_DIR}/.env"
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+Server_Dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ui.sh
+. "$Server_Dir/scripts/ui.sh"
+
 SERVICE_NAME="clash-for-linux"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 INSTALL_DIR="${CLASH_INSTALL_DIR:-$(cd "$(dirname "$0")" && pwd)}"
