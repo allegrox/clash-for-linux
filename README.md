@@ -1,5 +1,9 @@
 # 项目简介
 
+![GitHub License](https://img.shields.io/github/license/wnlen/clash-for-linux)
+![GitHub top language](https://img.shields.io/github/languages/top/wnlen/clash-for-linux)
+![GitHub Repo stars](https://img.shields.io/github/stars/wnlen/clash-for-linux)
+
 **clash-for-linux** 是一个面向 Linux 服务器 / 桌面环境的 **Clash（Mihomo）运行与管理工具**。
 
 项目基于 **Clash Meta / Mihomo 内核**，将内核准备、配置生成、服务托管与订阅更新等流程统一收敛为一套可执行的工程化方案，实现 **开箱即用、可维护、可回滚** 的稳定运行体验。
