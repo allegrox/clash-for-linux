@@ -68,8 +68,8 @@ usage() {
   clashctl 命令 [选项]
 
 指令:
-  on                     开启当前终端代理
-  off                    关闭当前终端代理
+  on                     开启代理
+  off                    关闭代理
   start                  启动 Clash
   stop                   停止 Clash
   restart                重启并自动应用当前配置
@@ -959,36 +959,51 @@ cmd_mixin() {
 }
 
 cmd_status() {
-  local mode service_type="未安装"
-  local running="未运行"
-  local service_active="-" service_enabled="-"
   local pid="-"
-  local controller="-"
-  local dashboard_url="-"
-  local http_port="-"
-  local dashboard_port="-"
-  local secret_display="未配置"
-  local config_exists="否"
-  local state_exists="否"
+  local running_text="未运行"
+  local service_active_text="-"
+  local service_enabled_text="-"
 
-  # 配置与运行（仅在有值时显示）
-  local gen_status=""
-  local gen_reason=""
-  local cfg_source=""
-  local gen_time=""
-  local run_result=""
-  local run_mode=""
-  local run_pid=""
-  local start_time=""
+  local proxy_port="-"
+  local dashboard_port="-"
+  local controller_addr="-"
+  local dashboard_url="-"
+
+  local secret_display="未配置"
+  local secret_value=""
 
   mode="$(detect_mode)"
 
   case "$mode" in
     systemd)
-      service_type="systemd"
-      running="运行中"
-      service_active="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
-      service_enabled="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
+      if systemctl is-active --quiet "$SERVICE_NAME"; then
+        running_text="运行中"
+      else
+        running_text="未运行"
+      fi
+
+      local active_raw=""
+      active_raw="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
+      case "$active_raw" in
+        active) service_active_text="运行中" ;;
+        inactive) service_active_text="未运行" ;;
+        failed) service_active_text="失败" ;;
+        activating) service_active_text="启动中" ;;
+        deactivating) service_active_text="停止中" ;;
+        *) service_active_text="${active_raw:--}" ;;
+      esac
+
+      local enabled_raw=""
+      enabled_raw="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
+      case "$enabled_raw" in
+        enabled) service_enabled_text="已开启" ;;
+        disabled) service_enabled_text="未开启" ;;
+        static) service_enabled_text="静态" ;;
+        indirect) service_enabled_text="间接" ;;
+        masked) service_enabled_text="已屏蔽" ;;
+        *) service_enabled_text="${enabled_raw:--}" ;;
+      esac
+
       pid="$(systemctl show -p MainPID --value "$SERVICE_NAME" 2>/dev/null || true)"
       [ -z "${pid:-}" ] && pid="-"
       [ "$pid" = "0" ] && pid="-"
@@ -1000,15 +1015,21 @@ cmd_status() {
       service_enabled="$(systemctl is-enabled "$SERVICE_NAME" 2>/dev/null || true)"
       ;;
     script)
-      service_type="脚本模式"
-      if is_script_running; then
-        running="运行中"
+      if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        running_text="运行中"
+      else
+        running_text="未运行"
+        pid="-"
       fi
-      pid="$(read_pid 2>/dev/null || echo "-")"
+      service_active_text="-"
+      service_enabled_text="-"
       ;;
+
     none)
-      service_type="未安装"
-      running="未运行"
+      running_text="未运行"
+      service_active_text="-"
+      service_enabled_text="-"
+      pid="-"
       ;;
   esac
 
@@ -1030,52 +1051,31 @@ cmd_status() {
   controller="$(read_runtime_config_value "external-controller" || echo "-")"
   dashboard_url="$(cmd_ui --raw 2>/dev/null || echo "-")"
 
-  local secret_value=""
-  secret_value="$(read_runtime_config_value "secret" || true)"
-  if [ -n "${secret_value:-}" ]; then
-    secret_display="$secret_value"
+  secret_value="$(read_runtime_config_value "secret" 2>/dev/null || true)"
+
+  if [ -z "${secret_value:-}" ] && [ -f "$PROJECT_DIR/.env" ]; then
+    secret_value="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?CLASH_SECRET=['\"]?([^'\"]+)['\"]?.*$/\2/p" "$PROJECT_DIR/.env" | head -n 1)"
   fi
+
+  [ -n "${secret_value:-}" ] && secret_display="$secret_value"
 
   ui_header "clashctl 状态"
 
-  ui_blank
-  ui_summary_begin "运行状态"
-  ui_summary_row "项目路径" "$PROJECT_DIR"
+  ui_summary_begin "运行与服务"
   ui_summary_row "运行模式" "$mode"
-  ui_summary_row "运行状态" "$running"
-  ui_summary_row "配置存在" "$config_exists"
-  ui_summary_row "状态文件" "$state_exists"
+  ui_summary_row "运行状态" "$running_text"
+  ui_summary_row "服务状态" "$service_active_text"
+  ui_summary_row "开机自启" "$service_enabled_text"
+  ui_summary_row "进程 ID" "${pid:--}"
   ui_summary_end
-
-  ui_blank
-  ui_summary_begin "服务信息"
-  ui_summary_row "服务类型" "$service_type"
-  ui_summary_row "服务状态" "$service_active"
-  ui_summary_row "开机自启" "$service_enabled"
-  ui_summary_row "进程 ID" "$pid"
-  ui_summary_end
-
-  ui_blank
-  if [ -n "${gen_status:-}${gen_reason:-}${cfg_source:-}${gen_time:-}${run_result:-}${run_mode:-}${run_pid:-}${start_time:-}" ]; then
-    ui_summary_begin "配置与运行"
-    [ -n "${gen_status:-}" ] && ui_summary_row "生成状态" "$gen_status"
-    [ -n "${gen_reason:-}" ] && ui_summary_row "失败原因" "$gen_reason"
-    [ -n "${cfg_source:-}" ] && ui_summary_row "配置来源" "$cfg_source"
-    [ -n "${gen_time:-}" ] && ui_summary_row "生成时间" "$gen_time"
-    [ -n "${run_result:-}" ] && ui_summary_row "运行结果" "$run_result"
-    [ -n "${run_mode:-}" ] && ui_summary_row "运行方式" "$run_mode"
-    [ -n "${run_pid:-}" ] && ui_summary_row "运行进程" "$run_pid"
-    [ -n "${start_time:-}" ] && ui_summary_row "启动时间" "$start_time"
-    ui_summary_end
-  fi
 
   ui_blank
   ui_summary_begin "端口与面板"
-  ui_summary_row "代理端口" "$http_port"
-  ui_summary_row "面板端口" "$dashboard_port"
-  ui_summary_row "控制地址" "$controller"
   ui_summary_row "面板地址" "$dashboard_url"
   ui_summary_row "密钥配置" "$secret_display"
+  ui_summary_row "代理端口" "$proxy_port"
+  ui_summary_row "面板端口" "$dashboard_port"
+  ui_summary_row "控制地址" "$controller_addr"
   ui_summary_end
 }
 
