@@ -86,8 +86,6 @@ if ! bash "$Install_Dir/scripts/resolve_clash.sh"; then
   exit 1
 fi
 
-ui_ok "Clash 内核已就绪"
-
 write_env_value() {
   local key="$1"
   local value="$2"
@@ -212,11 +210,11 @@ prompt_and_apply_subscription() {
       esac
     fi
 
-    # if command -v systemctl >/dev/null 2>&1; then
-    #   systemctl restart "${Service_Name}.service"
-    # else
-    #   "$Install_Dir/scripts/run_clash.sh" --daemon
-    # fi
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl restart "${Service_Name}.service"
+    else
+      "$Install_Dir/scripts/run_clash.sh" --daemon
+    fi
 
     ui_ok "订阅添加成功：[1] $sub_url"
     ui_ok "订阅已生效"
@@ -284,8 +282,6 @@ if [ "$NEW_REAL" != "$EXPECT_REAL" ]; then
   ui_error "clashctl 安装失败" >&2
   exit 1
 fi
-
-ui_ok "clashctl 已更新"
 
 # 清理 shell 缓存（非常关键）
 hash -r
