@@ -153,18 +153,44 @@ ui_summary_begin() {
 ui_summary_row() {
   local key="$1"
   local value="$2"
-  local inner content_width line
+  local inner content_width prefix prefix_len rest chunk first_avail next_avail
 
   inner="$(_ui_summary_inner_width)"
   content_width=$((inner - 2))
 
-  line=$(printf ' %-*s : %s' "$UI_SUMMARY_KEY_WIDTH" "$key" "$value")
+  prefix=$(printf ' %-*s : ' "$UI_SUMMARY_KEY_WIDTH" "$key")
+  prefix_len=${#prefix}
 
-  if [ "${#line}" -gt "$content_width" ]; then
-    line="${line:0:$content_width}"
+  if [ "$prefix_len" -ge "$content_width" ]; then
+    prefix=" "
+    prefix_len=1
   fi
 
-  printf '%s %-*s %s\n' "$BOX_V" "$content_width" "$line" "$BOX_V"
+  rest="$value"
+  first_avail=$((content_width - prefix_len))
+  next_avail=$((content_width - prefix_len))
+
+  # 第一行
+  if [ "${#rest}" -le "$first_avail" ]; then
+    printf '%s %-*s %s\n' "$BOX_V" "$content_width" "${prefix}${rest}" "$BOX_V"
+    return 0
+  fi
+
+  chunk="${rest:0:$first_avail}"
+  printf '%s %-*s %s\n' "$BOX_V" "$content_width" "${prefix}${chunk}" "$BOX_V"
+  rest="${rest:$first_avail}"
+
+  # 后续续行
+  while [ -n "$rest" ]; do
+    if [ "${#rest}" -le "$next_avail" ]; then
+      printf '%s %-*s %s\n' "$BOX_V" "$content_width" "$(printf '%*s%s' "$prefix_len" '' "$rest")" "$BOX_V"
+      break
+    fi
+
+    chunk="${rest:0:$next_avail}"
+    printf '%s %-*s %s\n' "$BOX_V" "$content_width" "$(printf '%*s%s' "$prefix_len" '' "$chunk")" "$BOX_V"
+    rest="${rest:$next_avail}"
+  done
 }
 
 ui_summary_end() {
