@@ -466,8 +466,13 @@ cmd_update_force() {
   chmod +x "$PROJECT_DIR"/bin/* 2>/dev/null || true
   sed -i 's/\r$//' "$PROJECT_DIR"/scripts/*.sh 2>/dev/null || true
 
-  safe_regenerate_config
-  regen_result=$?
+  regen_result=0
+  safe_regenerate_config || regen_result=$?
+
+  if [ "$regen_result" -eq 1 ]; then
+    err "配置生成失败，且不存在可用旧配置"
+    exit 1
+  fi
 
   if [ "$regen_result" -eq 1 ]; then
     err "配置生成失败，且不存在可用旧配置"
