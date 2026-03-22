@@ -539,7 +539,7 @@ cmd_update() {
     exit 1
   fi
 
-  echo "正在重启服务 ..."
+  ui_info "正在重启服务 ..."
   if has_systemd; then
     if ! systemctl restart clash-for-linux.service; then
       err "systemd 重启失败"
