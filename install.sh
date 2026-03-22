@@ -179,7 +179,7 @@ show_dashboard_info() {
   ui_summary_begin "😼 Web 控制台"
   ui_summary_row "🔓 注意放行端口" "$port"
   ui_summary_row "💻 内网" "$lan_ui"
-  ui_summary_row " ☁ 公共" "$custom_ui"
+  ui_summary_row "☁️ 公共" "$custom_ui"
   ui_summary_row "🌏 公网" "$public_ui"
   ui_summary_row "🔑 密钥" "$secret"
   ui_summary_end
@@ -411,5 +411,6 @@ secret="$(read_env_value "CLASH_SECRET")"
 public_ip="$(get_public_ip)"
 echo
 show_dashboard_info "$secret" "$public_ip"
+
 
 prompt_and_apply_subscription
