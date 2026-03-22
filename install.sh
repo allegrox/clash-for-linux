@@ -232,7 +232,40 @@ ui_ok "clash core validated"
 # =========================
 # 安装 clashctl
 # =========================
-ln -sf "$Install_Dir/clashctl" /usr/local/bin/clashctl
+# ===== 安装/覆盖 clashctl 命令 =====
+
+OLD_CLASHCTL_PATH="$(command -v clashctl 2>/dev/null || true)"
+OLD_CLASHCTL_REAL=""
+if [ -n "$OLD_CLASHCTL_PATH" ]; then
+  OLD_CLASHCTL_REAL="$(readlink -f "$OLD_CLASHCTL_PATH" 2>/dev/null || true)"
+fi
+
+chmod +x "$Install_Dir/clashctl"
+
+# 如果存在旧版本，打印提示
+if [ -n "$OLD_CLASHCTL_REAL" ] && [ "$OLD_CLASHCTL_REAL" != "$(readlink -f "$Install_Dir/clashctl")" ]; then
+  echo "[WARN] 检测到旧版 clashctl: $OLD_CLASHCTL_REAL"
+  echo "[INFO] 将覆盖为当前版本: $Install_Dir/clashctl"
+fi
+
+# 强制覆盖（关键）
+rm -f /usr/local/bin/clashctl
+ln -s "$Install_Dir/clashctl" /usr/local/bin/clashctl
+
+# 清理 shell 缓存（非常关键）
+hash -r
+
+# 强校验（防止假覆盖）
+NEW_CLASHCTL_REAL="$(readlink -f /usr/local/bin/clashctl 2>/dev/null || true)"
+EXPECTED_CLASHCTL_REAL="$(readlink -f "$Install_Dir/clashctl" 2>/dev/null || true)"
+
+if [ "$NEW_CLASHCTL_REAL" != "$EXPECTED_CLASHCTL_REAL" ]; then
+  echo "[ERROR] clashctl 覆盖失败，系统命令未指向当前安装目录" >&2
+  exit 1
+fi
+
+echo "[OK] clashctl 已更新: /usr/local/bin/clashctl -> $EXPECTED_CLASHCTL_REAL"
+
 chmod +x "$Install_Dir/clashctl"
 
 ui_ok "clashctl installed: /usr/local/bin/clashctl"
