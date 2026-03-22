@@ -141,8 +141,7 @@ show_install_usage() {
   tun status|on|off      查看/启用/关闭 Tun
   mixin status|on|off    查看/启用/关闭 Mixin
 
-选项:
-  --from-systemd         内部使用，避免 stop 递归调用 systemctl
+选
   -h, --help             显示帮助信息
 EOF
 }
@@ -176,7 +175,7 @@ show_dashboard_info() {
   }
 
   ui_blank
-  ui_summary_begin "😼 Web 控制台"
+  ui_summary_begin "😼 Clash Web 控制台"
   ui_summary_row "🔓 注意放行端口" "$port"
   ui_summary_row "💻 内网" "$lan_ui"
   ui_summary_row "🌐 公共" "$custom_ui"
@@ -209,7 +208,7 @@ prompt_and_apply_subscription() {
 
   while true; do
     echo
-    read -r -p "✈️  请输入要添加的订阅链接：" sub_url
+    read -r -p "👉 请输入要添加的订阅链接：" sub_url
 
     if [ -z "${sub_url:-}" ]; then
       ui_warn "已跳过订阅设置，可稍后使用 clashctl sub 进行配置"
@@ -218,7 +217,7 @@ prompt_and_apply_subscription() {
 
     write_env_value "CLASH_URL" "$sub_url"
 
-    ui_info "⏳ 正在下载订阅..."
+    echo "⏳ 正在下载订阅..."
 
     if ! "$Install_Dir/scripts/generate_config.sh" >/dev/null 2>&1; then
       ui_error "订阅不可用或转换失败"
@@ -241,8 +240,8 @@ prompt_and_apply_subscription() {
       "$Install_Dir/scripts/run_clash.sh" --daemon
     fi
 
-    ui_ok "🎉 订阅添加成功：$sub_url"
-    ui_ok "🔥 订阅已生效"
+    echo "🎉 订阅添加成功：$sub_url"
+    echo "🔥 订阅已生效"
 
 
 
@@ -411,5 +410,8 @@ echo
 show_dashboard_info "$secret" "$public_ip"
 
 show_install_usage
+
+clashctl on >/dev/null 2>&1 || true
+echo "🚀 代理已开启"
 
 prompt_and_apply_subscription
