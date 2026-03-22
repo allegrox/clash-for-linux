@@ -1,7 +1,9 @@
-# 关于本项目
+# 项目简介
 
-**clash-for-linux** 是一个面向 Linux 服务器/桌面环境的 **Clash 自动化运行与管理脚本集**。
-项目基于 **Clash Meta / Mihomo 内核**，通过脚本方式实现 **开箱即用、可维护、可回滚** 的代理部署体验，适合用于提升服务器访问 GitHub、Docker Hub 等海外资源的速度。
+**clash-for-linux** 是一个面向 Linux 服务器 / 桌面环境的 **Clash（Mihomo）运行与管理工具**。
+
+项目基于 **Clash Meta / Mihomo 内核**，将内核准备、配置生成、服务托管与订阅更新等流程统一收敛为一套可执行的工程化方案，实现 **开箱即用、可维护、可回滚** 的稳定运行体验。
+
 <p align="center">
   <img src="docs/assets/5.png" width="100%">
 </p>
@@ -12,12 +14,10 @@
 - 🧩 **脚本化部署**，无需手动安装依赖，适合服务器与无桌面环境
 - 🔧 **systemd 服务管理**，支持 start / stop / restart / enable
 - 🗂️ **清晰的目录结构**，配置、日志、二进制、mixin 分离，便于维护与回滚
-- 🔐 **安全默认配置**
-  - 管理面板默认仅绑定 `127.0.0.1`
-  - 自动生成或自定义 Secret
-  - 默认开启 TLS 校验
+- 🔐 **安全默认配置**，自动生成或自定义 Secret
+- 🩺 **内置诊断工具（`doctor`）**，快速排障 
 - 🧪 **端口自动检测与分配**，避免冲突
-- 🔄 **多订阅管理（clashctl）**，支持自动订阅切换（Vmess / V2Ray、Shadowsocks (SS)、ShadowsocksR (SSR)、Trojan、VLESS、Hysteria / Hysteria2、TUIC、HTTP / SOCKS5）
+- 🔄 **多订阅管理（clashctl）**，支持自动订阅切换
 - 🧠 **Mixin 机制**，可按需追加/覆盖 Clash 配置
 - 🌐 **Tun 模式支持**（需 Clash Meta / Premium）
 
@@ -28,14 +28,9 @@
 - 需要稳定访问 GitHub、Go / Node / Docker 生态的开发环境
 - 不希望长期手动维护 Clash 运行状态的用户
 
-### 项目定位说明
-
-- ✅ 本项目 **不提供任何订阅内容**，仅负责运行与管理
-- ✅ 本项目是 **Clash / yacd 的工程化封装**，并非 Clash 的替代品
-- ❌ 不适合只想“点点 UI 就用”的纯桌面用户
-- ❌ 不包含任何节点、机场或订阅推荐
-
 # 🚀 一键安装（推荐）
+
+在终端中执行以下命令即可完成安装：
 
 ```
 git clone --branch master --depth 1 https://ghfast.top/https://github.com/wnlen/clash-for-linux.git
@@ -43,114 +38,68 @@ cd clash-for-linux
 bash install.sh
 ```
 
-安装脚本将自动完成：
-
-- 识别系统架构并下载对应 Clash 内核
-- 创建 systemd 服务（默认启用并启动）
-- 检测并规避端口冲突
-- 安装 `clashctl` 到 `/usr/local/bin`
-- 创建低权限运行用户（默认 `clash`）
-
-### [进阶安装与高级用法](docs/install.md)
+- 上述命令使用了[加速前缀](https://gh-proxy.org/)，如失效可更换其他[可用链接](https://ghproxy.link/)。
+- 可通过 `.env` 文件或脚本参数自定义安装选项。
 
 ------
 
-## ⚙️ 配置订阅（必须）
+## ⌨️ 命令一览
 
-编辑 `.env` 文件，设置订阅地址：
+```bash
+用法:
+  clashctl 命令 [选项]
 
+指令:
+  on                     开启代理
+  off                    关闭代理
+  start                  启动 Clash
+  stop                   停止 Clash
+  restart                重启并自动应用当前配置
+  status                 查看当前状态
+  update                 更新到最新版本并自动应用配置
+  mode                   查看当前运行模式（systemd/script/none）
+  ui                     输出 Dashboard 地址
+  secret                 输出当前 secret
+  doctor                 健康检查
+  logs [-f] [-n 100]     查看日志
+  sub show|update        查看订阅地址 / 输入或更新订阅并立即生效
+  tun status|on|off      查看/启用/关闭 Tun
+  mixin status|on|off    查看/启用/关闭 Mixin
+
+选项:
+  -h, --help             显示帮助信息
 ```
-bash -c 'echo "CLASH_URL=<订阅地址>" > /root/clash-for-linux/.env'
-```
-
-配置完成后，**重启服务使配置生效**：
-
-```
-systemctl restart clash-for-linux.service
-```
-
-说明：
-
-- 安装脚本会自动识别并适配 **v2rayN / Base64 订阅**（vmess / vless / ss 等），并生成 `proxy-providers` 配置
-- 若使用 **Clash YAML 订阅**，将直接作为配置文件使用，不经过自动转换
-- `CLASH_SECRET` 为空时将自动生成
-- 端口支持设置为 `auto`，自动检测并分配
-- 其它架构可通过 `CLASH_BIN` 指定二进制路径，或命名为 `clash-linux-<arch>`
-------
-
-## ⚙️ 关闭自动更新订阅（可选）
-编辑 `.env` 文件，是否自动更新 Clash 订阅配置：
-true = 启动时检查订阅并重新下载/转换配置
-false = 禁用自动更新，直接使用本地已有 config.yaml
-```
-bash -c 'echo "CLASH_AUTO_UPDATE=false" > /opt/clash-for-linux/.env'
-```
-------
-
-## 🌐 打开 Clash 管理面板（推荐）
-
-出于安全考虑，管理接口默认 **仅监听服务器本机**：
-
-```
-127.0.0.1:9090
-```
-
-如需在 **本地浏览器** 中访问服务器上的管理面板，
- 请使用 SSH 端口转发（本地终端）：
-
-```
-ssh -N -L 9090:127.0.0.1:9090 root@<服务器IP>
-```
-
-然后在浏览器中访问：
-
-```
-http://127.0.0.1:9090/ui
-```
-
-> 不建议直接将管理端口暴露到公网。
-
-如果想要**公网访问**
-编辑 `.env` 文件，设置公网访问（对外端口不用改，改了机器人也能扫到，密钥设置长点就行）：
-
-```
-bash -c 'echo "EXTERNAL_CONTROLLER=0.0.0.0:9090" > /opt/clash-for-linux/.env'
-```
-
-配置完成后，**重启服务使配置生效**：
-
-```
-systemctl restart clash-for-linux.service
-```
-
-密钥留空时：脚本可自动生成随机值
-获取密钥命令：
-```
-sed -nE 's/^[[:space:]]*secret:[[:space:]]*//p' "/opt/clash-for-linux/runtime/config.yaml" | head -n 1
-```
-
 
 ------
 
-## ▶️ 开启 / 关闭系统代理
+## 🌐 Web 控制台
 
-**先加载一次环境变量（新终端只需一次）：**
+```bash
+$ clashui
+╔═══════════════════════════════════════════════╗
+║                😼 Web 控制台                  ║
+║═══════════════════════════════════════════════║
+║                                               ║
+║     🔓 注意放行端口：9090                      ║
+║     🏠 内网：http://192.168.0.1:9090/ui       ║
+║     🌏 公网：http://8.8.8.8:9090/ui          ║
+║     ☁️ 公共：http://board.zash.run.place      ║
+║                                               ║
+╚═══════════════════════════════════════════════╝
 
-```
-source /etc/profile.d/clash-for-linux.sh
+$ clashctl secret mysecret
+😼 密钥更新成功，已重启生效
+
+$ clashctl secret
+😼 当前密钥：mysecret
 ```
 
-**开启代理：**
+- 可通过浏览器打开 `Web` 控制台进行可视化操作，例如切换节点、查看日志等。
+- 默认使用 [zashboard](https://github.com/Zephyruso/zashboard) 作为控制台前端，如需更换可自行配置。
+- 若需将控制台暴露到公网，建议定期更换访问密钥，或通过 `SSH` 端口转发方式进行安全访问。
 
-```
-proxy_on
-```
 
-**关闭代理：**
-
-```
-proxy_off
-```
+------
 
 ## 🧰 常用管理命令
 
@@ -174,6 +123,28 @@ clashctl sub use personal
 clashctl sub update
 clashctl sub log
 ```
+
+------
+
+## 🏗️ 架构设计
+
+```text
+.env / 订阅
+      ↓
+generate（配置生成）
+      ↓
+runtime/config.yaml（运行态）
+      ↓
+Clash 内核运行（systemd / script）
+      ↓
+status / doctor（状态观测）
+```
+
+核心原则：
+
+- 配置生成 ≠ 运行
+- 运行环境隔离
+- 状态必须可观测
 
 ------
 
@@ -240,37 +211,13 @@ proxy_off
 
 ------
 
-## 🔍 状态检查（可选）
-
-端口：
-
-```
-netstat -tln | grep -E '9090|789.'
-```
-
-代理环境变量：
-
-```
-env | grep -E 'http_proxy|https_proxy'
-```
-
-------
-
 ## 🧹 卸载
 
 ```
 bash uninstall.sh
 ```
 
-------
 
-## 📝 说明
-
-- 管理面板默认绑定 `127.0.0.1:9090`
-- 如需对外访问，请自行配置并确保 `CLASH_SECRET` 足够复杂
-- 默认启用 TLS 校验，不推荐关闭
-
-<br>
 
 ## subconverter 多架构支持
 
@@ -340,6 +287,12 @@ exit 0
 chmod +x /etc/rc.local
 ```
 
+## 🔗 引用
+
+- [clash](https://clash.wiki/)
+- [mihomo](https://github.com/MetaCubeX/mihomo)
+- [subconverter](https://github.com/tindy2013/subconverter)
+- [zashboard](https://github.com/Zephyruso/zashboard)
 
 # 常见问题
 
