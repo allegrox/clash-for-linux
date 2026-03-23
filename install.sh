@@ -365,22 +365,13 @@ fi
 # =========================
 # 安装 proxy helper
 # =========================
-# 不再注入 shell function，clashctl 统一走 /usr/local/bin/clashctl
 rm -f /etc/profile.d/clash-for-linux.sh >/dev/null 2>&1 || true
 rm -f /etc/profile.d/clash.sh >/dev/null 2>&1 || true
 rm -f /etc/profile.d/clashctl.sh >/dev/null 2>&1 || true
 
-# 清理当前 shell 的旧函数污染（当前终端立即生效）
-unset -f clashctl clashhelp clashlog clashmixin clashoff clashon clashproxy clashrestart clashsecret clashstatus clashsub clashtun clashui clashupgrade 2>/dev/null || true
-unalias clashctl 2>/dev/null || true
-
 # 写入 profile 文件（新终端自动清理污染）
 cat >/etc/profile.d/clash-for-linux.sh <<EOF
 # clash-for-linux 代理工具
-
-# 清理旧版残留函数（防止旧版本污染新版本）
-unset -f clashctl clashhelp clashlog clashmixin clashoff clashon clashproxy clashrestart clashsecret clashstatus clashsub clashtun clashui clashupgrade 2>/dev/null || true
-unalias clashctl 2>/dev/null || true
 
 CLASH_INSTALL_DIR="${Install_Dir}"
 ENV_FILE="\${CLASH_INSTALL_DIR}/.env"
@@ -395,7 +386,6 @@ CLASH_LISTEN_IP="\${CLASH_LISTEN_IP:-127.0.0.1}"
 CLASH_HTTP_PORT="\${CLASH_HTTP_PORT:-7890}"
 CLASH_SOCKS_PORT="\${CLASH_SOCKS_PORT:-7891}"
 
-# 开启代理
 proxy_on() {
   export http_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
   export https_proxy="http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
@@ -405,14 +395,22 @@ proxy_on() {
   export ALL_PROXY="socks5://\${CLASH_LISTEN_IP}:\${CLASH_SOCKS_PORT}"
   export no_proxy="127.0.0.1,localhost,::1"
   export NO_PROXY="127.0.0.1,localhost,::1"
-  ui_ok "已开启代理"
+  echo "[OK] Proxy enabled: http://\${CLASH_LISTEN_IP}:\${CLASH_HTTP_PORT}"
 }
 
-# 关闭代理
 proxy_off() {
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
   unset all_proxy ALL_PROXY no_proxy NO_PROXY
-  ui_ok "已关闭代理"
+  echo "[OK] Proxy disabled"
+}
+
+proxy_status() {
+  echo "http_proxy=\${http_proxy:-<empty>}"
+  echo "https_proxy=\${https_proxy:-<empty>}"
+  echo "all_proxy=\${all_proxy:-<empty>}"
+  echo "CLASH_LISTEN_IP=\${CLASH_LISTEN_IP}"
+  echo "CLASH_HTTP_PORT=\${CLASH_HTTP_PORT}"
+  echo "CLASH_SOCKS_PORT=\${CLASH_SOCKS_PORT}"
 }
 EOF
 
