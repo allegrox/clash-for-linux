@@ -4,7 +4,7 @@
 </h1>
 
 <h3 align="center">
-一个面向 Linux 的 Clash(<a href="https://github.com/MetaCubeX/mihomo">Mihomo</a>)管理工具。
+🐧 一个面向 Linux 的 Clash(<a href="https://github.com/MetaCubeX/mihomo">Mihomo</a>)管理工具。
 </h3>
 
 <p align="center">
