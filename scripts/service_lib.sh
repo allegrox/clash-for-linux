@@ -60,14 +60,17 @@ cleanup_dead_pid() {
 # =========================
 # 模式检测（统一）
 # =========================
+systemd_available() {
+  command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
+}
 detect_mode() {
   cleanup_dead_pid
 
-  if service_unit_exists && systemctl is-active --quiet "$SERVICE_NAME"; then
+  if service_unit_exists && systemd_available && systemctl is-active --quiet "$SERVICE_NAME"; then
     echo "systemd"
   elif is_script_running; then
     echo "script"
-  elif service_unit_exists; then
+  elif service_unit_exists && systemd_available; then
     echo "systemd-installed"
   else
     echo "none"

@@ -176,7 +176,6 @@ show_install_usage() {
   restart                重启并自动应用当前配置
   status                 查看当前状态
   update                 更新到最新版本并自动应用配置
-  mode                   查看当前运行模式（systemd/script/none）
   ui                     输出 Dashboard 地址
   secret                 输出当前 secret
   doctor                 健康检查
@@ -443,8 +442,5 @@ echo
 show_dashboard_info "$secret" "$public_ip"
 
 show_install_usage
-
-clashctl on >/dev/null 2>&1 || true
-echo "🚀 代理已开启"
 
 prompt_and_apply_subscription
