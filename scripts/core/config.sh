@@ -1661,7 +1661,7 @@ show_subscription() {
 
 bootstrap_subscription_from_install_input() {
   local url="$1"
-  local fmt="${2:-clash}"
+  local fmt="${2:-convert}"
   local name="${3:-default}"
   local file
 
@@ -1733,18 +1733,12 @@ subscription_name_has_url() {
 }
 
 ensure_subscription_bootstrap_for_install() {
-  local env_url env_fmt active_name
+  local env_url active_name
 
   env_url="${CLASH_SUBSCRIPTION_URL:-}"
-  env_fmt="${CLASH_SUBSCRIPTION_FORMAT:-clash}"
   active_name="${1:-default}"
 
   [ -n "${env_url:-}" ] || return 0
-
-  case "$env_fmt" in
-    clash|convert) ;;
-    *) env_fmt="clash" ;;
-  esac
 
   ensure_subscriptions_file
 
@@ -1753,12 +1747,12 @@ ensure_subscription_bootstrap_for_install() {
     return 0
   fi
 
-  bootstrap_subscription_from_install_input "$env_url" "$env_fmt" "$active_name"
+  bootstrap_subscription_from_install_input "$env_url" "convert" "$active_name"
 }
 
 set_subscription() {
   local url="$1"
-  local fmt="${2:-clash}"
+  local fmt="${2:-convert}"
   local name="${3:-default}"
   local file
 
@@ -2423,7 +2417,7 @@ detect_subscription_format() {
 }
 
 prompt_subscription_if_needed() {
-  local current_url input_url input_format
+  local current_url input_url
 
   current_url="$(subscription_url 2>/dev/null || true)"
   if [ -n "${current_url:-}" ]; then
@@ -2449,16 +2443,8 @@ prompt_subscription_if_needed() {
     return 0
   fi
 
-  input_format="${CLASH_SUBSCRIPTION_FORMAT:-$(detect_subscription_format "$input_url")}"
-
-  case "$input_format" in
-    clash|convert) ;;
-    *) input_format="clash" ;;
-  esac
-
   write_env_value "CLASH_SUBSCRIPTION_URL" "$input_url"
-  write_env_value "CLASH_SUBSCRIPTION_FORMAT" "$input_format"
-  bootstrap_subscription_from_install_input "$input_url" "$input_format" "default"
+  bootstrap_subscription_from_install_input "$input_url" "convert" "default"
 }
 
 clear_subscription() {
@@ -2786,18 +2772,8 @@ convert_subscription_via_subconverter() {
 }
 
 set_subscription_format() {
-  local fmt="$1"
-
-  case "$fmt" in
-    clash|convert)
-      ;;
-    *)
-      die "不支持的订阅格式：$fmt，可选值：clash / convert"
-      ;;
-  esac
-
-  write_env_value "CLASH_SUBSCRIPTION_FORMAT" "$fmt"
-  success "订阅格式已写入 .env：$fmt"
+  ui_info "当前版本订阅格式已固定为 convert，无需设置"
+  return 0
 }
 
 show_subscription_format_help() {
