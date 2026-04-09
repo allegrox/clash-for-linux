@@ -232,7 +232,11 @@ print_on_feedback() {
     if [ -n "${controller_public:-}" ]; then
       echo "🌍 公网：http://${controller_public}/ui"
     else
-      echo "🌍 公网：需公网 IP / 端口映射后可访问"
+      if controller_externally_reachable 2>/dev/null; then
+        echo "🌍 公网：未探测到本机公网地址"
+      else
+        echo "🌍 公网：当前 controller 未对外监听"
+      fi
     fi
   else
     echo "🖥️ 控制台：未知"
@@ -279,6 +283,7 @@ ui_internal_url() {
     host="127.0.0.1"
   fi
 
+  host="$(url_host_bracket_if_needed "$host")"
   echo "http://${host}:${port}/ui"
 }
 
@@ -290,6 +295,7 @@ ui_public_url() {
   [ -n "${ip:-}" ] || return 1
   [ -n "${port:-}" ] || return 1
 
+  ip="$(url_host_bracket_if_needed "$ip")"
   echo "http://${ip}:${port}/ui"
 }
 
@@ -301,6 +307,7 @@ ui_lan_url() {
   [ -n "${ip:-}" ] || return 1
   [ -n "${port:-}" ] || return 1
 
+  ip="$(url_host_bracket_if_needed "$ip")"
   echo "http://${ip}:${port}/ui"
 }
 
@@ -2100,6 +2107,42 @@ cmd_status_next() {
   system_state_default_action
 }
 
+url_host_bracket_if_needed() {
+  local host="$1"
+
+  [ -n "${host:-}" ] || return 1
+
+  case "$host" in
+    \[*\])
+      echo "$host"
+      ;;
+    *:*)
+      echo "[$host]"
+      ;;
+    *)
+      echo "$host"
+      ;;
+  esac
+}
+
+url_host_bracket_if_needed() {
+  local host="$1"
+
+  [ -n "${host:-}" ] || return 1
+
+  case "$host" in
+    \[*\])
+      echo "$host"
+      ;;
+    *:*)
+      echo "[$host]"
+      ;;
+    *)
+      echo "$host"
+      ;;
+  esac
+}
+
 ui_controller_port() {
   local controller
   controller="$(controller_addr 2>/dev/null || true)"
@@ -2121,7 +2164,36 @@ ui_lan_ip() {
 }
 
 ui_public_ip() {
-  curl -fsSL --connect-timeout 2 --max-time 3 https://api64.ipify.org 2>/dev/null || true
+  local ip=""
+
+  ip="$(
+    env \
+      -u http_proxy \
+      -u https_proxy \
+      -u HTTP_PROXY \
+      -u HTTPS_PROXY \
+      -u all_proxy \
+      -u ALL_PROXY \
+      curl -4 -fsSL --connect-timeout 2 --max-time 3 https://api.ipify.org 2>/dev/null || true
+  )"
+
+  if [ -n "${ip:-}" ]; then
+    echo "$ip"
+    return 0
+  fi
+
+  ip="$(
+    env \
+      -u http_proxy \
+      -u https_proxy \
+      -u HTTP_PROXY \
+      -u HTTPS_PROXY \
+      -u all_proxy \
+      -u ALL_PROXY \
+      curl -6 -fsSL --connect-timeout 2 --max-time 3 https://api64.ipify.org 2>/dev/null || true
+  )"
+
+  [ -n "${ip:-}" ] && echo "$ip"
 }
 
 cmd_ui_box() {
@@ -4888,6 +4960,27 @@ status_read_controller_raw() {
   runtime_config_controller_addr 2>/dev/null || true
 }
 
+controller_externally_reachable() {
+  local controller host
+
+  controller="$(status_read_controller_raw 2>/dev/null || true)"
+  [ -n "${controller:-}" ] && [ "$controller" != "null" ] || return 1
+
+  host="${controller%:*}"
+
+  case "$host" in
+    0.0.0.0|::|[::])
+      return 0
+      ;;
+    127.0.0.1|localhost|::1|[::1])
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 status_read_controller() {
   local controller
   controller="$(status_read_controller_raw 2>/dev/null || true)"
@@ -4899,6 +4992,8 @@ status_read_controller_lan() {
   controller="$(status_read_controller_raw 2>/dev/null || true)"
   [ -n "${controller:-}" ] && [ "$controller" != "null" ] || return 1
 
+  controller_externally_reachable || return 1
+
   port="${controller##*:}"
   lan_ip="$(ui_lan_ip 2>/dev/null || true)"
   [ -n "${lan_ip:-}" ] || return 1
@@ -4909,6 +5004,8 @@ status_read_controller_public() {
   local controller public_ip port
   controller="$(status_read_controller_raw 2>/dev/null || true)"
   [ -n "${controller:-}" ] && [ "$controller" != "null" ] || return 1
+
+  controller_externally_reachable || return 1
 
   port="${controller##*:}"
   public_ip="$(ui_public_ip 2>/dev/null || true)"
