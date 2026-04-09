@@ -712,10 +712,47 @@ $(github_mirror_candidate_entries "$url")
 EOF
 }
 
+curl_env_points_to_local_proxy() {
+  local value
+
+  for value in \
+    "${http_proxy:-}" "${https_proxy:-}" \
+    "${HTTP_PROXY:-}" "${HTTPS_PROXY:-}" \
+    "${all_proxy:-}" "${ALL_PROXY:-}"; do
+    [ -n "${value:-}" ] || continue
+
+    case "$value" in
+      http://127.0.0.1:*|https://127.0.0.1:*|socks5://127.0.0.1:*|socks5h://127.0.0.1:* \
+      |http://localhost:*|https://localhost:*|socks5://localhost:*|socks5h://localhost:* \
+      |http://[::1]:*|https://[::1]:*|socks5://[::1]:*|socks5h://[::1]:*)
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+curl_download() {
+  if curl_env_points_to_local_proxy; then
+    env \
+      -u http_proxy \
+      -u https_proxy \
+      -u HTTP_PROXY \
+      -u HTTPS_PROXY \
+      -u all_proxy \
+      -u ALL_PROXY \
+      curl "$@"
+    return $?
+  fi
+
+  curl "$@"
+}
+
 download_candidate_probe() {
   local url="$1"
 
-  curl -fsSIL \
+  curl_download -fsSIL \
     --location \
     --connect-timeout "$(download_probe_timeout)" \
     --max-time "$(download_probe_timeout)" \
@@ -726,7 +763,7 @@ download_candidate_fetch() {
   local url="$1"
   local out="$2"
 
-  curl \
+  curl_download \
     --progress-bar \
     --show-error \
     --fail \
@@ -844,7 +881,7 @@ download_http_fetch_to_file() {
   local connect_timeout="${4:-10}"
   local max_time="${5:-300}"
 
-  curl \
+  curl_download \
     --progress-bar \
     --show-error \
     --fail \
