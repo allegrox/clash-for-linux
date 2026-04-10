@@ -2171,10 +2171,6 @@ EOF
   cat > "$target" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-if [ -f "$(profile_entry_file)" ]; then
-  # shellcheck disable=SC1090
-  source "$(profile_entry_file)"
-fi
 exec "$bin_target" "\$@"
 EOF
   chmod +x "$target"
@@ -2250,8 +2246,6 @@ fi
 EOF
   chmod +x "$profile_file"
 
-  install_alias_command_wrappers
-
   for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     install_rc_source_block "$shell_rc" "$profile_file"
   done
@@ -2259,22 +2253,7 @@ EOF
 
 remove_clashctl_entry() {
   rm -f "$(clashctl_entry_target)" "$(clashctl_bin_entry_target)" 2>/dev/null || true
-
-  local wrapper_name
-  for wrapper_name in \
-    clashon \
-    clashoff \
-    clashproxy \
-    clashls \
-    clashselect \
-    clashui \
-    clashsecret \
-    clashtun \
-    clashupgrade \
-    clashmixin
-  do
-    rm -f "$(command_install_dir)/$wrapper_name" 2>/dev/null || true
-  done
+  remove_alias_command_wrappers
 }
 
 remove_shell_alias_entry() {
