@@ -462,7 +462,7 @@ normalize_runtime_config() {
     .["external-ui"] = env(dashboard_dir_value) |
     .["external-ui-url"] = "/ui" |
     .["allow-lan"] = (.["allow-lan"] // true) |
-    .mode = (.mode // "rule") |
+    .mode = "rule" |
     .["log-level"] = (.["log-level"] // "info") |
 
     .tun.enable = (env(tun_enable_value) == "true") |
