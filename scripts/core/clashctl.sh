@@ -1723,7 +1723,7 @@ status_port_adjustment_brief() {
 
 print_status_summary_compact() {
   local profile mixed_port controller controller_lan controller_public
-  local running_text user_connectivity user_risk current_proxy_brief next_action shell_persist_text
+  local running_text user_connectivity user_risk current_proxy_brief next_action system_proxy_text
   local current_active dashboard_text dashboard_source_text dashboard_policy_text secret_text
   local tun_text
 
@@ -1748,9 +1748,9 @@ print_status_summary_compact() {
   current_proxy_brief="$(status_current_proxy_brief)"
   next_action="$(system_state_default_action 2>/dev/null || echo 'clashctl status')"
   if system_proxy_supported; then
-    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
+    system_proxy_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="unsupported"
+    system_proxy_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_text="已部署"
@@ -1791,7 +1791,7 @@ print_status_summary_compact() {
   echo "⚙️ 运行后端：$(status_runtime_backend_text)"
   echo "🧪 环境模式：$(status_container_mode_text)"
   echo "🧪 Tun 状态：${tun_text:-未知}"
-  echo "🧭 系统代理状态：${shell_persist_text}"
+  echo "🧭 系统代理状态：${system_proxy_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
@@ -1831,7 +1831,7 @@ print_status_summary_verbose() {
   local config_source config_source_time build_applied build_applied_time build_applied_reason
   local install_backend_text install_container_text install_verify_text port_adjustment_text
   local tun_enabled tun_effective tun_stack tun_container_text tun_kernel_text tun_verify_result tun_verify_reason tun_verify_time
-  local shell_persist_text dashboard_text dashboard_source_text dashboard_policy_text secret_text
+  local system_proxy_text dashboard_text dashboard_source_text dashboard_policy_text secret_text
 
   profile="$(show_active_profile 2>/dev/null || true)"
   [ -n "${profile:-}" ] || profile="default"
@@ -1894,9 +1894,9 @@ print_status_summary_verbose() {
   tun_verify_reason="$(status_tun_last_verify_reason 2>/dev/null || true)"
   tun_verify_time="$(status_tun_last_verify_time 2>/dev/null || true)"
   if system_proxy_supported; then
-    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
+    system_proxy_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="unsupported"
+    system_proxy_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_text="已部署"
@@ -1959,7 +1959,7 @@ print_status_summary_verbose() {
   echo "🧪 环境模式：${install_container_text:-unknown}"
   echo "🧩 安装验证：${install_verify_text:-unknown}"
   echo "🧭 端口裁决：${port_adjustment_text:-unknown}"
-  echo "🧭 系统代理状态：${shell_persist_text}"
+  echo "🧭 系统代理状态：${system_proxy_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
@@ -2814,7 +2814,7 @@ doctor_install_ports() {
 doctor_runtime_events() {
   local fallback_used fallback_time fallback_reason risk_level
   local config_source build_applied build_applied_time build_applied_reason
-  local shell_persist_text dashboard_status dashboard_source secret_status
+  local system_proxy_text dashboard_status dashboard_source secret_status
 
   doctor_print_title "运行事件检查"
 
@@ -2827,9 +2827,9 @@ doctor_runtime_events() {
   build_applied_time="$(status_runtime_build_applied_time 2>/dev/null || true)"
   build_applied_reason="$(status_runtime_build_applied_reason 2>/dev/null || true)"
   if system_proxy_supported; then
-    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
+    system_proxy_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="unsupported"
+    system_proxy_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_status="已部署"
@@ -2849,7 +2849,7 @@ doctor_runtime_events() {
 
   doctor_ok "当前风险等级：${risk_level:-unknown}"
   doctor_ok "当前配置来源：${config_source:-unknown}"
-  doctor_ok "系统代理状态：${shell_persist_text}"
+  doctor_ok "系统代理状态：${system_proxy_text}"
   doctor_ok "Dashboard 运行目录：${dashboard_status}（来源：${dashboard_source}）"
   doctor_ok ".env 控制器密钥：${secret_status}"
 
@@ -4850,6 +4850,7 @@ cmd_proxy() {
       echo
       echo "🧩 说明："
       echo "  on/off    开启或关闭系统代理（/etc/environment）"
+      echo "            仅修改系统代理接管状态，不输出 shell export 脚本"
       echo "  groups    查看可切换策略组"
       echo "  current   查看当前节点"
       echo "  nodes     查看某策略组候选节点"

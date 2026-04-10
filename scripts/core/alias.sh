@@ -56,6 +56,12 @@ _clash_alias_proxy_show() {
   _clashctl_real proxy show 2>/dev/null || true
 }
 
+_clash_alias_unset_shell_proxy() {
+  unset \
+    http_proxy https_proxy HTTP_PROXY HTTPS_PROXY \
+    all_proxy ALL_PROXY no_proxy NO_PROXY
+}
+
 _clash_alias_status_next() {
   _clashctl_real status-next 2>/dev/null || echo "clashctl status"
 }
@@ -97,6 +103,7 @@ _clash_alias_run_on() {
 }
 
 _clash_alias_run_off() {
+  _clash_alias_unset_shell_proxy
   _clash_alias_proxy_off
   _clash_alias_set_persist_enabled "false"
   _clashctl_real off "$@" || return $?
@@ -104,6 +111,35 @@ _clash_alias_run_off() {
 }
 
 _clash_alias_auto_restore_proxy() {
+  local proxy_file http_url https_url all_url no_proxy
+
+  _clash_alias_persist_enabled || return 0
+
+  proxy_file="${SYSTEM_PROXY_ENV_FILE:-/etc/environment}"
+  [ -f "$proxy_file" ] || return 0
+  grep -Fq "# >>> clash-for-linux system proxy >>>" "$proxy_file" 2>/dev/null || return 0
+
+  http_url="$(sed -nE 's/^http_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  https_url="$(sed -nE 's/^https_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  all_url="$(sed -nE 's/^all_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  no_proxy="$(sed -nE 's/^NO_PROXY="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  [ -n "${no_proxy:-}" ] || no_proxy="$(sed -nE 's/^no_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+
+  [ -n "${http_url:-}" ] || return 0
+  [ -n "${https_url:-}" ] || https_url="$http_url"
+  [ -n "${all_url:-}" ] || all_url="${http_url/http:\/\//socks5://}"
+  [ -n "${no_proxy:-}" ] || no_proxy="127.0.0.1,localhost,::1"
+
+  export http_proxy="$http_url"
+  export https_proxy="$https_url"
+  export HTTP_PROXY="$http_url"
+  export HTTPS_PROXY="$https_url"
+  export all_proxy="$all_url"
+  export ALL_PROXY="$all_url"
+  export no_proxy="$no_proxy"
+  export NO_PROXY="$no_proxy"
+
+  echo "♻️ 已恢复当前 shell 代理环境（来自持久化状态）"
   return 0
 }
 
@@ -125,6 +161,7 @@ clashctl() {
           _clash_alias_proxy_show
           ;;
         off)
+          _clash_alias_unset_shell_proxy
           _clash_alias_proxy_off
           _clash_alias_print_sep
           echo "🧹 系统代理已关闭"
