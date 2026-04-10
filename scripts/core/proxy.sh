@@ -242,6 +242,61 @@ default_proxy_group_current() {
   proxy_group_current "$group" 2>/dev/null || return 1
 }
 
+proxy_node_is_direct_like() {
+  local node="$1"
+
+  case "${node:-}" in
+    DIRECT|REJECT|REJECT-DROP|PASS)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+proxy_group_first_relay_node() {
+  local group="$1"
+  local node
+
+  [ -n "${group:-}" ] || return 1
+
+  while IFS= read -r node; do
+    [ -n "${node:-}" ] || continue
+    if proxy_node_is_direct_like "$node"; then
+      continue
+    fi
+    echo "$node"
+    return 0
+  done < <(proxy_group_nodes "$group")
+
+  return 1
+}
+
+ensure_default_proxy_group_relay_selected() {
+  local group current relay
+
+  group="$(default_proxy_group_name 2>/dev/null || true)"
+  [ -n "${group:-}" ] || return 0
+
+  current="$(proxy_group_current "$group" 2>/dev/null || true)"
+  [ -n "${current:-}" ] || return 0
+
+  if ! proxy_node_is_direct_like "$current"; then
+    return 0
+  fi
+
+  relay="$(proxy_group_first_relay_node "$group" 2>/dev/null || true)"
+  [ -n "${relay:-}" ] || return 0
+
+  if [ "$relay" = "$current" ]; then
+    return 0
+  fi
+
+  proxy_group_select "$group" "$relay"
+  echo "$group|$current|$relay"
+}
+
 print_proxy_groups_status() {
   local group current
 
