@@ -242,6 +242,70 @@ default_proxy_group_current() {
   proxy_group_current "$group" 2>/dev/null || return 1
 }
 
+proxy_node_is_direct_like() {
+  local node="$1"
+
+  case "${node:-}" in
+    DIRECT|REJECT|REJECT-DROP|PASS)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+proxy_group_first_relay_node() {
+  local group="$1"
+  local node
+
+  [ -n "${group:-}" ] || return 1
+
+  while IFS= read -r node; do
+    [ -n "${node:-}" ] || continue
+    if proxy_node_is_direct_like "$node"; then
+      continue
+    fi
+    echo "$node"
+    return 0
+  done < <(proxy_group_nodes "$group")
+
+  return 1
+}
+
+ensure_default_proxy_group_relay_selected() {
+  local group current relay
+  local switched=""
+
+  while IFS= read -r group; do
+    [ -n "${group:-}" ] || continue
+
+    current="$(proxy_group_current "$group" 2>/dev/null || true)"
+    [ -n "${current:-}" ] || continue
+
+    if ! proxy_node_is_direct_like "$current"; then
+      continue
+    fi
+
+    relay="$(proxy_group_first_relay_node "$group" 2>/dev/null || true)"
+    [ -n "${relay:-}" ] || continue
+
+    if [ "$relay" = "$current" ]; then
+      continue
+    fi
+
+    proxy_group_select "$group" "$relay"
+
+    if [ -n "${switched:-}" ]; then
+      switched="${switched},${group}|${current}|${relay}"
+    else
+      switched="${group}|${current}|${relay}"
+    fi
+  done < <(proxy_group_list)
+
+  [ -n "${switched:-}" ] && echo "$switched"
+}
+
 print_proxy_groups_status() {
   local group current
 

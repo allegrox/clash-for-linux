@@ -2207,6 +2207,7 @@ install_alias_command_wrappers() {
     cat > "$install_dir/$wrapper_name" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+export CLASH_WRAPPER_EXEC="1"
 source "$alias_file"
 $wrapper_name "\$@"
 EOF
@@ -2620,8 +2621,6 @@ print_install_summary() {
       echo "🚦 当前状态：⚪ stopped"
       ;;
     verifying)
-      echo "🚦 当前状态：🟡 verifying"
-      echo "🧭 安装已完成，运行状态仍在确认中"
       if [ -n "${mixed_port:-}" ]; then
         echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
       fi

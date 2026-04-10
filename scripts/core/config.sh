@@ -462,7 +462,7 @@ normalize_runtime_config() {
     .["external-ui"] = env(dashboard_dir_value) |
     .["external-ui-url"] = "/ui" |
     .["allow-lan"] = (.["allow-lan"] // true) |
-    .mode = (.mode // "rule") |
+    .mode = "rule" |
     .["log-level"] = (.["log-level"] // "info") |
 
     .tun.enable = (env(tun_enable_value) == "true") |
@@ -2417,7 +2417,7 @@ detect_subscription_format() {
 }
 
 prompt_subscription_if_needed() {
-  local current_url input_url
+  local current_url input_url input_fmt
 
   current_url="$(subscription_url 2>/dev/null || true)"
   if [ -n "${current_url:-}" ]; then
@@ -2443,8 +2443,9 @@ prompt_subscription_if_needed() {
     return 0
   fi
 
+  input_fmt="$(detect_subscription_format "$input_url")"
   write_env_value "CLASH_SUBSCRIPTION_URL" "$input_url"
-  bootstrap_subscription_from_install_input "$input_url" "convert" "default"
+  bootstrap_subscription_from_install_input "$input_url" "$input_fmt" "default"
 }
 
 clear_subscription() {
