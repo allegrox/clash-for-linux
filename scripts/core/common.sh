@@ -2171,47 +2171,11 @@ EOF
   cat > "$target" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-if [ -f "$(profile_entry_file)" ]; then
-  # shellcheck disable=SC1090
-  source "$(profile_entry_file)"
-fi
 exec "$bin_target" "\$@"
 EOF
   chmod +x "$target"
 
   ensure_command_install_dir_in_shell_path
-}
-
-install_alias_command_wrappers() {
-  local alias_file install_dir wrapper_name
-
-  alias_file="$(alias_source_file)"
-  install_dir="$(command_install_dir)"
-
-  [ -f "$alias_file" ] || die "未找到 alias 脚本：$alias_file"
-
-  mkdir -p "$install_dir"
-
-  for wrapper_name in \
-    clashon \
-    clashoff \
-    clashproxy \
-    clashls \
-    clashselect \
-    clashui \
-    clashsecret \
-    clashtun \
-    clashupgrade \
-    clashmixin
-  do
-    cat > "$install_dir/$wrapper_name" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-source "$alias_file"
-$wrapper_name "\$@"
-EOF
-    chmod +x "$install_dir/$wrapper_name"
-  done
 }
 
 cleanup_legacy_shell_entries() {
@@ -2249,8 +2213,6 @@ fi
 EOF
   chmod +x "$profile_file"
 
-  install_alias_command_wrappers
-
   for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     install_rc_source_block "$shell_rc" "$profile_file"
   done
@@ -2258,22 +2220,7 @@ EOF
 
 remove_clashctl_entry() {
   rm -f "$(clashctl_entry_target)" "$(clashctl_bin_entry_target)" 2>/dev/null || true
-
-  local wrapper_name
-  for wrapper_name in \
-    clashon \
-    clashoff \
-    clashproxy \
-    clashls \
-    clashselect \
-    clashui \
-    clashsecret \
-    clashtun \
-    clashupgrade \
-    clashmixin
-  do
-    rm -f "$(command_install_dir)/$wrapper_name" 2>/dev/null || true
-  done
+  remove_alias_command_wrappers
 }
 
 remove_shell_alias_entry() {
