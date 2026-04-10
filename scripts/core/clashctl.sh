@@ -256,7 +256,7 @@ cmd_on() {
   if proxy_controller_reachable 2>/dev/null; then
     relay_switch="$(ensure_default_proxy_group_relay_selected 2>/dev/null || true)"
     if [ -n "${relay_switch:-}" ]; then
-      ui_info "检测到默认策略组为直连，已自动切换到代理节点"
+      ui_info "检测到策略组存在直连默认项，已自动切换到代理节点"
     fi
   fi
 

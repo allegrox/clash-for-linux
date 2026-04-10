@@ -276,25 +276,35 @@ proxy_group_first_relay_node() {
 ensure_default_proxy_group_relay_selected() {
   local group current relay
 
-  group="$(default_proxy_group_name 2>/dev/null || true)"
-  [ -n "${group:-}" ] || return 0
+  local switched=""
 
-  current="$(proxy_group_current "$group" 2>/dev/null || true)"
-  [ -n "${current:-}" ] || return 0
+  while IFS= read -r group; do
+    [ -n "${group:-}" ] || continue
 
-  if ! proxy_node_is_direct_like "$current"; then
-    return 0
-  fi
+    current="$(proxy_group_current "$group" 2>/dev/null || true)"
+    [ -n "${current:-}" ] || continue
 
-  relay="$(proxy_group_first_relay_node "$group" 2>/dev/null || true)"
-  [ -n "${relay:-}" ] || return 0
+    if ! proxy_node_is_direct_like "$current"; then
+      continue
+    fi
 
-  if [ "$relay" = "$current" ]; then
-    return 0
-  fi
+    relay="$(proxy_group_first_relay_node "$group" 2>/dev/null || true)"
+    [ -n "${relay:-}" ] || continue
 
-  proxy_group_select "$group" "$relay"
-  echo "$group|$current|$relay"
+    if [ "$relay" = "$current" ]; then
+      continue
+    fi
+
+    proxy_group_select "$group" "$relay"
+
+    if [ -n "${switched:-}" ]; then
+      switched="${switched},${group}|${current}|${relay}"
+    else
+      switched="${group}|${current}|${relay}"
+    fi
+  done < <(proxy_group_list)
+
+  [ -n "${switched:-}" ] && echo "$switched"
 }
 
 print_proxy_groups_status() {
