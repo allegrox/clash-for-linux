@@ -247,9 +247,23 @@ print_on_feedback() {
 }
 
 cmd_on() {
+  local relay_switch
+
   prepare
   ensure_on_path_ready
   service_start
+
+  if proxy_controller_reachable 2>/dev/null; then
+    relay_switch="$(ensure_default_proxy_group_relay_selected 2>/dev/null || true)"
+    if [ -n "${relay_switch:-}" ]; then
+      ui_info "检测到策略组存在直连默认项，已自动切换到代理节点"
+    fi
+  fi
+
+  if ! system_proxy_enable; then
+    service_stop >/dev/null 2>&1 || true
+    die_state "当前环境不支持系统代理接管（仅支持可写 /etc/environment）" "clashctl proxy show"
+  fi
 
   load_system_state
   print_on_feedback
@@ -265,8 +279,12 @@ cmd_off() {
   prepare
   service_stop
 
+  if ! system_proxy_disable; then
+    die_state "当前环境不支持系统代理关闭（仅支持可写 /etc/environment）" "clashctl proxy show"
+  fi
+
   ui_title "🔴 代理环境已关闭"
-  ui_info "当前 Shell 代理变量已清理（函数系统已生效）"
+  ui_info "系统代理已关闭"
   ui_next "clashctl status"
   ui_blank
 }
@@ -1423,39 +1441,12 @@ status_current_proxy_brief() {
   echo "暂无可切换策略组"
 }
 
-shell_proxy_enabled() {
-  [ -n "${http_proxy:-}" ] \
-    || [ -n "${https_proxy:-}" ] \
-    || [ -n "${HTTP_PROXY:-}" ] \
-    || [ -n "${HTTPS_PROXY:-}" ] \
-    || [ -n "${all_proxy:-}" ] \
-    || [ -n "${ALL_PROXY:-}" ]
-}
-
-shell_proxy_http_value() {
-  if [ -n "${http_proxy:-}" ]; then
-    echo "$http_proxy"
-    return 0
+system_proxy_supported_state() {
+  if system_proxy_supported; then
+    echo "true"
+  else
+    echo "false"
   fi
-
-  if [ -n "${HTTP_PROXY:-}" ]; then
-    echo "$HTTP_PROXY"
-    return 0
-  fi
-
-  echo ""
-}
-
-shell_proxy_matches_runtime() {
-  local expected actual
-
-  expected="$(proxy_http_url 2>/dev/null || true)"
-  actual="$(shell_proxy_http_value)"
-
-  [ -n "${expected:-}" ] || return 1
-  [ -n "${actual:-}" ] || return 1
-
-  [ "$expected" = "$actual" ]
 }
 
 connectivity_issue_code() {
@@ -1495,13 +1486,18 @@ connectivity_issue_code() {
     return 0
   fi
 
-  if ! shell_proxy_enabled; then
-    echo "shell_proxy_missing"
+  if ! system_proxy_supported; then
+    echo "system_proxy_unsupported"
     return 0
   fi
 
-  if ! shell_proxy_matches_runtime; then
-    echo "shell_proxy_mismatch"
+  if [ "$(system_proxy_status 2>/dev/null || echo off)" != "on" ]; then
+    echo "system_proxy_off"
+    return 0
+  fi
+
+  if ! system_proxy_matches_runtime; then
+    echo "system_proxy_mismatch"
     return 0
   fi
 
@@ -1516,8 +1512,9 @@ connectivity_issue_text() {
     config_invalid) echo "异常（当前运行配置不可用）" ;;
     subscription_unhealthy) echo "异常（当前主订阅不可用）" ;;
     proxy_control_broken) echo "异常（当前无可用策略组或节点控制面异常）" ;;
-    shell_proxy_missing) echo "未接管（当前 Shell 未注入代理环境）" ;;
-    shell_proxy_mismatch) echo "异常（当前 Shell 代理与运行时端口不一致）" ;;
+    system_proxy_unsupported) echo "未接管（当前环境不支持系统代理）" ;;
+    system_proxy_off) echo "未接管（系统代理未开启）" ;;
+    system_proxy_mismatch) echo "异常（系统代理端口与运行时不一致）" ;;
     *) echo "未知" ;;
   esac
 }
@@ -1542,11 +1539,14 @@ connectivity_next_action() {
     proxy_control_broken)
       echo "clashctl status --verbose"
       ;;
-    shell_proxy_missing)
-      echo 'eval "$(clashctl proxy on)"'
+    system_proxy_unsupported)
+      echo "clashctl doctor"
       ;;
-    shell_proxy_mismatch)
-      echo 'eval "$(clashctl proxy off)" && eval "$(clashctl proxy on)"'
+    system_proxy_off)
+      echo "clashctl proxy on"
+      ;;
+    system_proxy_mismatch)
+      echo "clashctl proxy off && clashctl proxy on"
       ;;
     *)
       echo "clashctl doctor"
@@ -1557,6 +1557,7 @@ connectivity_next_action() {
 connectivity_evidence_lines() {
   local runtime_running controller_ok build_status subscription_status
   local group_count expected_proxy actual_proxy active config_source
+  local system_proxy_state system_proxy_supported_text
 
   if status_is_running; then
     runtime_running="true"
@@ -1576,7 +1577,9 @@ connectivity_evidence_lines() {
   active="$(active_subscription_name 2>/dev/null || true)"
   config_source="$(status_runtime_config_source 2>/dev/null || true)"
   expected_proxy="$(proxy_http_url 2>/dev/null || true)"
-  actual_proxy="$(shell_proxy_http_value)"
+  actual_proxy="$(system_proxy_http_value 2>/dev/null || true)"
+  system_proxy_state="$(system_proxy_status 2>/dev/null || echo off)"
+  system_proxy_supported_text="$(system_proxy_supported_state)"
 
   echo "• runtime_running = ${runtime_running:-false}"
   echo "• controller_reachable = ${controller_ok:-false}"
@@ -1586,12 +1589,9 @@ connectivity_evidence_lines() {
   echo "• config_source = ${config_source:-unknown}"
   echo "• proxy_group_count = ${group_count:-0}"
 
-  if shell_proxy_enabled; then
-    echo "• shell_proxy_enabled = true"
-    echo "• shell_proxy_http = ${actual_proxy:-unknown}"
-  else
-    echo "• shell_proxy_enabled = false"
-  fi
+  echo "• system_proxy_supported = ${system_proxy_supported_text:-false}"
+  echo "• system_proxy_enabled = ${system_proxy_state:-off}"
+  [ -n "${actual_proxy:-}" ] && echo "• system_proxy_http = ${actual_proxy}"
 
   if [ -n "${expected_proxy:-}" ]; then
     echo "• runtime_proxy_http = $expected_proxy"
@@ -1749,10 +1749,10 @@ print_status_summary_compact() {
   user_risk="$(status_user_risk_text)"
   current_proxy_brief="$(status_current_proxy_brief)"
   next_action="$(system_state_default_action 2>/dev/null || echo 'clashctl status')"
-  if shell_proxy_persist_enabled 2>/dev/null; then
-    shell_persist_text="开启"
+  if system_proxy_supported; then
+    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="关闭"
+    shell_persist_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_text="已部署"
@@ -1793,7 +1793,7 @@ print_status_summary_compact() {
   echo "⚙️ 运行后端：$(status_runtime_backend_text)"
   echo "🧪 环境模式：$(status_container_mode_text)"
   echo "🧪 Tun 状态：${tun_text:-未知}"
-  echo "🧭 新终端代理继承：${shell_persist_text}"
+  echo "🧭 系统代理状态：${shell_persist_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
@@ -1895,10 +1895,10 @@ print_status_summary_verbose() {
   tun_verify_result="$(status_tun_last_verify_result 2>/dev/null || true)"
   tun_verify_reason="$(status_tun_last_verify_reason 2>/dev/null || true)"
   tun_verify_time="$(status_tun_last_verify_time 2>/dev/null || true)"
-  if shell_proxy_persist_enabled 2>/dev/null; then
-    shell_persist_text="开启"
+  if system_proxy_supported; then
+    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="关闭"
+    shell_persist_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_text="已部署"
@@ -1961,7 +1961,7 @@ print_status_summary_verbose() {
   echo "🧪 环境模式：${install_container_text:-unknown}"
   echo "🧩 安装验证：${install_verify_text:-unknown}"
   echo "🧭 端口裁决：${port_adjustment_text:-unknown}"
-  echo "🧭 新终端代理继承：${shell_persist_text}"
+  echo "🧭 系统代理状态：${shell_persist_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
@@ -2828,10 +2828,10 @@ doctor_runtime_events() {
   build_applied="$(status_runtime_build_applied 2>/dev/null || true)"
   build_applied_time="$(status_runtime_build_applied_time 2>/dev/null || true)"
   build_applied_reason="$(status_runtime_build_applied_reason 2>/dev/null || true)"
-  if shell_proxy_persist_enabled 2>/dev/null; then
-    shell_persist_text="开启"
+  if system_proxy_supported; then
+    shell_persist_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
-    shell_persist_text="关闭"
+    shell_persist_text="unsupported"
   fi
   if [ -f "$(runtime_dashboard_dir)/index.html" ]; then
     dashboard_status="已部署"
@@ -2851,7 +2851,7 @@ doctor_runtime_events() {
 
   doctor_ok "当前风险等级：${risk_level:-unknown}"
   doctor_ok "当前配置来源：${config_source:-unknown}"
-  doctor_ok "新终端代理继承：${shell_persist_text}"
+  doctor_ok "系统代理状态：${shell_persist_text}"
   doctor_ok "Dashboard 运行目录：${dashboard_status}（来源：${dashboard_source}）"
   doctor_ok ".env 控制器密钥：${secret_status}"
 
@@ -4800,10 +4800,18 @@ cmd_proxy() {
       print_proxy_show
       ;;
     on)
-      print_proxy_on_script
+      if ! system_proxy_enable; then
+        die_state "当前环境不支持系统代理接管（仅支持可写 /etc/environment）" "clashctl proxy show"
+      fi
+      ui_ok "系统代理已开启"
+      print_proxy_show
       ;;
     off)
-      print_proxy_off_script
+      if ! system_proxy_disable; then
+        die_state "当前环境不支持系统代理关闭（仅支持可写 /etc/environment）" "clashctl proxy show"
+      fi
+      ui_ok "系统代理已关闭"
+      print_proxy_show
       ;;
     groups)
       cmd_proxy_groups
@@ -4843,7 +4851,7 @@ cmd_proxy() {
       echo "  clashctl proxy select <策略组> <节点>"
       echo
       echo "🧩 说明："
-      echo "  on/off    输出当前 Shell 代理变量脚本"
+      echo "  on/off    开启或关闭系统代理（/etc/environment）"
       echo "  groups    查看可切换策略组"
       echo "  current   查看当前节点"
       echo "  nodes     查看某策略组候选节点"
@@ -4854,8 +4862,6 @@ cmd_proxy() {
       echo "  clashctl proxy groups"
       echo "  clashctl proxy select"
       echo
-      echo '🌐 注入当前 Shell：eval "$(clashctl proxy on)"'
-      echo '🧹 清理当前 Shell：eval "$(clashctl proxy off)"'
       echo
       ui_next "clashctl select"
       ui_blank

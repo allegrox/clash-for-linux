@@ -45,11 +45,11 @@ _clash_alias_print_sep() {
 }
 
 _clash_alias_proxy_on() {
-  eval "$(_clashctl_real proxy on)" || return $?
+  _clashctl_real proxy on >/dev/null || return $?
 }
 
 _clash_alias_proxy_off() {
-  eval "$(_clashctl_real proxy off)" || true
+  _clashctl_real proxy off >/dev/null || true
 }
 
 _clash_alias_proxy_show() {
@@ -81,8 +81,7 @@ _clash_alias_after_off() {
   _clash_alias_set_persist_enabled "false"
   _clash_alias_print_sep
   echo "🔴 已关闭代理环境"
-  echo "🧹 当前 Shell 代理变量已清理"
-  echo "🧭 新终端默认代理：已关闭"
+  echo "🧹 系统代理已关闭"
   echo "👉 下一步：clashctl status"
 }
 
@@ -102,12 +101,7 @@ _clash_alias_run_off() {
 }
 
 _clash_alias_auto_restore_proxy() {
-  [ "${CLASH_FOR_LINUX_PROXY_AUTO_RESTORED:-0}" = "1" ] && return 0
-  export CLASH_FOR_LINUX_PROXY_AUTO_RESTORED="1"
-
-  if _clash_alias_persist_enabled; then
-    _clash_alias_proxy_on >/dev/null 2>&1 || true
-  fi
+  return 0
 }
 
 clashctl() {
@@ -130,7 +124,7 @@ clashctl() {
         off)
           _clash_alias_proxy_off
           _clash_alias_print_sep
-          echo "🧹 当前 Shell 代理变量已清理"
+          echo "🧹 系统代理已关闭"
           ;;
         *)
           _clashctl_real "$@"
