@@ -1,9 +1,7 @@
-mode: single
-policy: strict
 active: default
-selected: []
+
 sources:
   default:
     type: clash
-    url: https://msub.xn--m7r52rosihxm.com/api/v1/client/subscribe?token=1bc3d16cc3211a892b2e16bdb72115ec
+    url: ""
     enabled: true
