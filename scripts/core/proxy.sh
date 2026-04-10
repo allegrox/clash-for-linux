@@ -275,6 +275,7 @@ proxy_group_first_relay_node() {
 
 ensure_default_proxy_group_relay_selected() {
   local group current relay
+
   local switched=""
 
   while IFS= read -r group; do
