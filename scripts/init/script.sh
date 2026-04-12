@@ -36,6 +36,11 @@ script_service_logs() {
 }
 
 install_runtime_entry() {
+  if is_openwrt; then
+    install_script_entry
+    return 0
+  fi
+
   if [ "$INSTALL_SCOPE" = "system" ] && systemd_available; then
     install_systemd_entry
     return 0

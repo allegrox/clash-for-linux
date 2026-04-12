@@ -15,8 +15,10 @@ init_project_context "$PROJECT_DIR"
 load_env_if_exists
 detect_install_scope "${1:-auto}"
 
-init_layout
+ensure_openwrt_install_supported
 ensure_required_commands
+
+init_layout
 ensure_dashboard_deploy_prerequisites
 
 resolve_runtime_kernel
