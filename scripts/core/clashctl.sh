@@ -205,58 +205,14 @@ ensure_on_path_ready() {
 }
 
 print_on_feedback() {
-  local mixed_port controller controller_lan controller_public next_action
-  local controller_ready="false"
-
-  mixed_port="$(status_read_mixed_port 2>/dev/null || true)"
-  controller="$(status_read_controller 2>/dev/null || true)"
-  if proxy_controller_reachable 2>/dev/null; then
-    controller_ready="true"
-    controller_lan="$(status_read_controller_lan 2>/dev/null || true)"
-    controller_public="$(status_read_controller_public 2>/dev/null || true)"
-  else
-    controller_lan=""
-    controller_public=""
-  fi
-  load_system_state
-  next_action="$(system_state_default_action 2>/dev/null || echo 'clashctl status')"
-
-  echo
+  ui_blank
   echo "🐱 已开启代理环境"
-  echo
-
-  if [ -n "${mixed_port:-}" ] && [ "$mixed_port" != "null" ]; then
-    echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
-  else
-    echo "🌐 本地代理：未知"
-  fi
-
-  if [ "$controller_ready" = "true" ] && [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "🐱 控制台：http://${controller}/ui"
-    [ -n "${controller_lan:-}" ] && echo "🏠 局域网：http://${controller_lan}/ui"
-    if [ -n "${controller_public:-}" ]; then
-      echo "🌍 公网：http://${controller_public}/ui"
-    else
-      if controller_externally_reachable 2>/dev/null; then
-        echo "🌍 公网：未探测到本机公网地址"
-      else
-        echo "🌍 公网：当前 controller 未对外监听"
-      fi
-    fi
-  elif [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "🐱 控制台：控制器暂不可访问"
-    echo "🌍 公网：控制器暂不可访问"
-  else
-    echo "🐱 控制台：未知"
-  fi
-
-  echo "👉 下一步：$next_action"
-  echo
+  ui_blank
 }
 
 cmd_on() {
   local relay_switch
-  local relay_switch_file relay_rc
+  local relay_switch_file relay_err_file relay_rc
   local already_on="false"
 
   trap 'rc=$?; ui_error "开启代理失败：cmd_on 在第 ${LINENO} 行执行失败：${BASH_COMMAND}（返回码：${rc}）"; ui_next "clashctl logs service"; exit "$rc"' ERR
@@ -269,10 +225,6 @@ cmd_on() {
     && [ "$(system_proxy_status 2>/dev/null || echo off)" = "on" ] \
     && system_proxy_matches_runtime 2>/dev/null; then
     already_on="true"
-  fi
-
-  if [ "${CLASH_ALIAS_CALL:-0}" != "1" ]; then
-    ui_info "正在开启代理"
   fi
 
   if status_is_running 2>/dev/null && ! proxy_controller_reachable 2>/dev/null; then
@@ -294,21 +246,18 @@ cmd_on() {
   if proxy_controller_reachable 2>/dev/null; then
     relay_switch=""
     relay_switch_file="$RUNTIME_DIR/.relay-switch.$$"
-    if ensure_default_proxy_group_relay_selected >"$relay_switch_file" 2>/dev/null; then
+    relay_err_file="$LOG_DIR/relay-switch.err"
+    mkdir -p "$LOG_DIR"
+    : > "$relay_err_file"
+    if ensure_default_proxy_group_relay_selected >"$relay_switch_file" 2>"$relay_err_file"; then
       if [ -s "$relay_switch_file" ]; then
         IFS= read -r relay_switch < "$relay_switch_file" || relay_switch=""
       fi
     else
       relay_rc=$?
       relay_switch=""
-      if [ "$relay_rc" -ne 1 ]; then
-        ui_warn "策略组默认代理节点自动切换失败，已跳过，不影响代理开启"
-      fi
     fi
     rm -f "$relay_switch_file" 2>/dev/null || true
-    if [ -n "${relay_switch:-}" ]; then
-      ui_info "检测到策略组存在直连默认项，已自动切换到代理节点"
-    fi
   fi
 
   if ! system_proxy_enable; then
@@ -317,9 +266,6 @@ cmd_on() {
   fi
 
   load_system_state
-  if [ "$already_on" = "true" ]; then
-    ui_info "代理已经是开启状态"
-  fi
   print_on_feedback
 
   if [ "${CLASH_ALIAS_CALL:-0}" != "1" ]; then
@@ -345,7 +291,7 @@ cmd_off() {
   if ! system_proxy_disable; then
     die_state "当前环境不支持系统代理关闭（仅支持可写 /etc/environment）" "clashctl doctor"
   fi
-
+  ui_blank
   echo "🧹 系统代理已关闭"
   ui_blank
 }
