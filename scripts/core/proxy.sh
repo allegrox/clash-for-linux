@@ -400,7 +400,7 @@ proxy_group_first_relay_node() {
 }
 
 ensure_default_proxy_group_relay_selected() {
-  local group current relay
+  local group current relay select_error
 
   local switched=""
 
@@ -421,7 +421,14 @@ ensure_default_proxy_group_relay_selected() {
       continue
     fi
 
-    proxy_group_select "$group" "$relay"
+    if ! select_error="$(proxy_group_select "$group" "$relay" 2>&1 >/dev/null)"; then
+      if [ -n "${select_error:-}" ]; then
+        warn "策略组自动切换失败，已跳过：${group} ${current} -> ${relay}；${select_error}"
+      else
+        warn "策略组自动切换失败，已跳过：${group} ${current} -> ${relay}"
+      fi
+      continue
+    fi
 
     if [ -n "${switched:-}" ]; then
       switched="${switched},${group}|${current}|${relay}"

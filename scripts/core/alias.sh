@@ -81,7 +81,7 @@ _clash_alias_proxy_off() {
 }
 
 _clash_alias_proxy_show() {
-  _clashctl_real proxy show 2>/dev/null || true
+  return 0
 }
 
 _clash_alias_export_system_proxy() {
@@ -132,29 +132,12 @@ _clash_alias_prepare_on() {
 _clash_alias_after_on() {
   _clash_alias_set_persist_enabled "true"
   _clash_alias_export_system_proxy || return $?
-
-  _clash_alias_print_sep
-  if [ "${CLASH_WRAPPER_EXEC:-0}" = "1" ]; then
-    echo "✅ 系统代理已开启"
-  else
-    echo "✅ 当前 Shell 代理环境已同步"
-  fi
-  _clash_alias_proxy_show
-
-  if [ "${CLASH_WRAPPER_EXEC:-0}" = "1" ]; then
-    echo "🚨 当前通过独立命令执行，Shell 变量不会自动回写到父终端"
-    echo "💡 如需当前终端立即生效，请重新打开终端或 source shell 入口后执行 clashon"
-  fi
-
-  echo "👉 下一步：$(_clash_alias_status_next)"
 }
 
 _clash_alias_run_on() {
   local on_output on_rc had_errexit
 
   _clash_alias_prepare_on || return $?
-
-  echo "🐱 正在开启代理..."
 
   on_output="$(mktemp "${TMPDIR:-/tmp}/clashon.XXXXXX")" || {
     echo "❗ 开启代理失败：无法创建临时输出文件" >&2
@@ -246,6 +229,7 @@ clashctl() {
           _clash_alias_proxy_off
           _clash_alias_print_sep
           echo "🧹 系统代理已关闭"
+          ui_blank
           ;;
         *)
           _clashctl_real "$@"
