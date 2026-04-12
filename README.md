@@ -8,7 +8,7 @@
 一个面向 Linux 的 Clash(<a href="https://github.com/MetaCubeX/mihomo">Mihomo</a>)管理工具。
 </h3>
 <p align="center">
-  <img src="resources/ui.png" width="100%">
+  <img src="resources/shell.png" width="100%">
 </p>
 
 
