@@ -47,6 +47,16 @@ sync_runtime_dependencies() {
   ensure_controller_secret >/dev/null
 }
 
+refresh_installed_entry_files() {
+  # Reload common.sh after code update so generated entry files use the latest templates.
+  # shellcheck source=scripts/core/common.sh
+  source "$PROJECT_DIR/scripts/core/common.sh"
+
+  info "正在刷新命令入口与 shell profile"
+  install_clashctl_entry
+  install_shell_alias_entry
+}
+
 remove_mihomo_binary() {
   rm -f "$(mihomo_bin)" 2>/dev/null || true
 }
@@ -172,6 +182,8 @@ update_project_code() {
   fi
 
   success "代码已更新到最新版本"
+
+  refresh_installed_entry_files
 
   sync_runtime_dependencies
 
