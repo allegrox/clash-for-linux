@@ -1,15 +1,17 @@
 <h1 align="center">
-  🐱 Linux 一键安装 Clash</a>
+  🐱 Clash for Linux</a>
   <br>
 </h1>
 
 
+
 <h3 align="center">
-一个面向 Linux 的 Clash(<a href="https://github.com/MetaCubeX/mihomo">Mihomo</a>)管理工具。
+一个更完整、更优雅的 Linux Clash / <a href="https://github.com/MetaCubeX/mihomo">Mihomo</a> 运行平台。
 </h3>
 <p align="center">
   <img src="resources/shell.png" width="100%">
 </p>
+
 
 
 # ✨ 核心特性
