@@ -135,6 +135,81 @@ service_restart() {
   esac
 }
 
+service_autostart_supported() {
+  case "$(runtime_backend)" in
+    systemd|systemd-user)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+service_autostart_enable() {
+  local backend
+  backend="$(runtime_backend)"
+
+  case "$backend" in
+    systemd)
+      systemd_service_autostart_enable
+      ;;
+    systemd-user)
+      systemd_user_service_autostart_enable
+      ;;
+    script)
+      write_runtime_value "RUNTIME_BOOT_AUTOSTART" "false"
+      write_runtime_value "RUNTIME_BOOT_AUTOSTART_EXPLICIT" "true"
+      return 2
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+service_autostart_disable() {
+  local backend
+  backend="$(runtime_backend)"
+
+  case "$backend" in
+    systemd)
+      systemd_service_autostart_disable
+      ;;
+    systemd-user)
+      systemd_user_service_autostart_disable
+      ;;
+    script)
+      write_runtime_value "RUNTIME_BOOT_AUTOSTART" "false"
+      write_runtime_value "RUNTIME_BOOT_AUTOSTART_EXPLICIT" "true"
+      return 2
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+service_autostart_status() {
+  local backend
+  backend="$(runtime_backend)"
+
+  case "$backend" in
+    systemd)
+      systemd_service_autostart_status
+      ;;
+    systemd-user)
+      systemd_user_service_autostart_status
+      ;;
+    script)
+      echo "unsupported"
+      ;;
+    *)
+      echo "unknown"
+      ;;
+  esac
+}
+
 service_is_running() {
   local backend pid
   backend="$(runtime_backend)"
