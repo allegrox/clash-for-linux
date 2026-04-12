@@ -2343,6 +2343,7 @@ install_alias_command_wrappers() {
     clashui \
     clashsecret \
     clashtun \
+    clashrelay \
     clashupgrade \
     clashmixin
   do
@@ -2568,6 +2569,7 @@ remove_alias_command_wrappers() {
     clashui \
     clashsecret \
     clashtun \
+    clashrelay \
     clashupgrade \
     clashmixin
   do

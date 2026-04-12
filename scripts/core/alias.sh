@@ -331,6 +331,10 @@ clashtun() {
   clashctl tun "$@"
 }
 
+clashrelay() {
+  clashctl relay "$@"
+}
+
 clashupgrade() {
   clashctl upgrade "$@"
 }

@@ -51,6 +51,7 @@ usage_advanced() {
 🧩 Config:
   config                         🧩 配置编译管理
   mixin                          🧩 Mixin 配置管理
+  relay                          🔗 多跳节点管理
 
 📡 Subscription Advanced:
   sub                            📡 订阅高级管理（启用 / 禁用 / 重命名 / 删除）
@@ -77,6 +78,8 @@ usage_advanced() {
   clashctl config explain
   clashctl config regen
   clashctl config kernel mihomo
+  clashctl relay add 多跳-示例 节点A 节点B --domain example.com
+  clashctl relay list
 
   clashctl tun doctor
   clashctl update --force
@@ -3553,6 +3556,216 @@ cmd_mixin() {
   esac
 }
 
+ensure_relay_mixin_file() {
+  local file
+  ensure_config_files
+  file="$(mixin_config_file)"
+
+  [ -s "$file" ] || cat > "$file" <<'EOF'
+override: {}
+prepend:
+  proxies: []
+  proxy-groups: []
+  rules: []
+append:
+  proxies: []
+  proxy-groups: []
+  rules: []
+EOF
+
+  "$(yq_bin)" eval -i '
+    .override = (.override // {}) |
+    .prepend = (.prepend // {}) |
+    .prepend.proxies = (.prepend.proxies // []) |
+    .prepend["proxy-groups"] = (.prepend["proxy-groups"] // []) |
+    .prepend.rules = (.prepend.rules // []) |
+    .append = (.append // {}) |
+    .append.proxies = (.append.proxies // []) |
+    .append["proxy-groups"] = (.append["proxy-groups"] // []) |
+    .append.rules = (.append.rules // [])
+  ' "$file"
+
+  echo "$file"
+}
+
+relay_apply_mixin_change() {
+  echo
+  echo "ℹ️ 正在重新生成配置 ..."
+  regenerate_config
+
+  if status_is_running; then
+    service_restart
+    echo "🐱 多跳配置已生效（已自动重启）"
+  else
+    echo "🟡 多跳配置已写入（下次启动生效）"
+  fi
+}
+
+cmd_relay_add() {
+  local name rule="" domain="" match_mode="false" file node
+  local nodes=()
+
+  prepare
+  [ -x "$(yq_bin)" ] || die_state "依赖未就绪：缺少 yq（$(yq_bin)）" "请先执行 bash install.sh"
+
+  name="${1:-}"
+  [ -n "${name:-}" ] || die_usage "缺少多跳名称" "clashctl relay add <名称> <节点A> <节点B> [更多节点] [--domain 域名|--match]"
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --domain)
+        shift || true
+        [ -n "${1:-}" ] || die_usage "--domain 缺少域名" "clashctl relay add <名称> <节点A> <节点B> --domain example.com"
+        domain="$1"
+        ;;
+      --match)
+        match_mode="true"
+        ;;
+      --)
+        shift || true
+        while [ $# -gt 0 ]; do
+          nodes+=("$1")
+          shift
+        done
+        break
+        ;;
+      --*)
+        die_usage "未知 relay add 参数：$1" "clashctl relay add <名称> <节点A> <节点B> [--domain 域名|--match]"
+        ;;
+      *)
+        nodes+=("$1")
+        ;;
+    esac
+    shift || true
+  done
+
+  [ "${#nodes[@]}" -ge 2 ] || die_usage "多跳至少需要两个节点" "clashctl relay add <名称> <节点A> <节点B>"
+
+  if [ -n "${domain:-}" ] && [ "$match_mode" = "true" ]; then
+    die_usage "--domain 与 --match 只能选择一个" "clashctl relay add <名称> <节点A> <节点B> [--domain 域名|--match]"
+  fi
+
+  if [ -n "${domain:-}" ]; then
+    rule="DOMAIN-SUFFIX,${domain},${name}"
+  elif [ "$match_mode" = "true" ]; then
+    rule="MATCH,${name}"
+  fi
+
+  file="$(ensure_relay_mixin_file)"
+
+  RELAY_NAME="$name" "$(yq_bin)" eval -i '
+    .append["proxy-groups"] = ((.append["proxy-groups"] // []) | map(select(.name != strenv(RELAY_NAME)))) |
+    .append["proxy-groups"] += [{"name": strenv(RELAY_NAME), "type": "relay", "proxies": []}]
+  ' "$file"
+
+  for node in "${nodes[@]}"; do
+    RELAY_NAME="$name" RELAY_NODE="$node" "$(yq_bin)" eval -i '
+      (.append["proxy-groups"][] | select(.name == strenv(RELAY_NAME)).proxies) += [strenv(RELAY_NODE)]
+    ' "$file"
+  done
+
+  if [ -n "${rule:-}" ]; then
+    RELAY_RULE="$rule" "$(yq_bin)" eval -i '
+      .prepend.rules = ([strenv(RELAY_RULE)] + (.prepend.rules // []) | unique)
+    ' "$file"
+  fi
+
+  ui_title "🔗 多跳配置已更新"
+  ui_kv "🔧" "配置文件" "$file"
+  ui_kv "🔗" "多跳名称" "$name"
+  ui_kv "🧩" "节点链路" "$(printf '%s\n' "${nodes[@]}" | awk 'BEGIN{out=""} {out=(out?out" -> ":"")$0} END{print out}')"
+  [ -n "${rule:-}" ] && ui_kv "📜" "新增规则" "$rule"
+
+  relay_apply_mixin_change
+  echo "👉 下一步：clashctl relay list"
+  echo
+}
+
+cmd_relay_list() {
+  local file output
+  prepare
+  [ -x "$(yq_bin)" ] || die_state "依赖未就绪：缺少 yq（$(yq_bin)）" "请先执行 bash install.sh"
+
+  file="$(ensure_relay_mixin_file)"
+  output="$("$(yq_bin)" eval '
+    (.append["proxy-groups"] // [])[] |
+    select(.type == "relay") |
+    "  " + .name + "： " + ((.proxies // []) | join(" -> "))
+  ' "$file" 2>/dev/null || true)"
+
+  ui_title "🔗 多跳节点"
+  ui_kv "🔧" "配置文件" "$file"
+  ui_blank
+
+  if [ -n "${output:-}" ]; then
+    printf '%s\n' "$output"
+  else
+    echo "当前没有通过 mixin 配置的多跳组"
+    ui_next "clashctl relay add 多跳-示例 节点A 节点B --domain example.com"
+  fi
+  ui_blank
+}
+
+cmd_relay_remove() {
+  local name file
+  prepare
+  [ -x "$(yq_bin)" ] || die_state "依赖未就绪：缺少 yq（$(yq_bin)）" "请先执行 bash install.sh"
+
+  name="${1:-}"
+  [ -n "${name:-}" ] || die_usage "缺少多跳名称" "clashctl relay remove <名称>"
+
+  file="$(ensure_relay_mixin_file)"
+  RELAY_NAME="$name" "$(yq_bin)" eval -i '
+    .append["proxy-groups"] = ((.append["proxy-groups"] // []) | map(select(.name != strenv(RELAY_NAME)))) |
+    .prepend.rules = ((.prepend.rules // []) | map(select((. | endswith("," + strenv(RELAY_NAME))) | not))) |
+    .append.rules = ((.append.rules // []) | map(select((. | endswith("," + strenv(RELAY_NAME))) | not)))
+  ' "$file"
+
+  ui_title "🔗 多跳配置已删除"
+  ui_kv "🔧" "配置文件" "$file"
+  ui_kv "🔗" "多跳名称" "$name"
+
+  relay_apply_mixin_change
+  echo "👉 下一步：clashctl relay list"
+  echo
+}
+
+cmd_relay() {
+  case "${1:-}" in
+    add)
+      shift || true
+      cmd_relay_add "$@"
+      ;;
+    list|ls|"")
+      cmd_relay_list
+      ;;
+    remove|rm|delete)
+      shift || true
+      cmd_relay_remove "$@"
+      ;;
+    help|-h|--help)
+      ui_title "🔗 多跳节点管理"
+      echo "📜 用法："
+      echo "  clashctl relay add <名称> <节点A> <节点B> [更多节点] [--domain 域名|--match]"
+      echo "  clashctl relay list"
+      echo "  clashctl relay remove <名称>"
+      echo
+      echo "示例："
+      echo "  clashctl relay add 多跳-示例 节点A 节点B --domain example.com"
+      echo "  clashctl relay add 全局多跳 节点A 节点B --match"
+      echo
+      echo "说明："
+      echo "  add 会写入 config/mixin.yaml，并重新生成运行配置"
+      echo "  --domain 用于小范围测试，--match 会让所有未提前命中的流量走多跳"
+      echo "  节点名称必须与订阅生成的节点名完全一致"
+      ;;
+    *)
+      die_usage "未知的 relay 子命令：$1" "clashctl relay help"
+      ;;
+  esac
+}
+
 runtime_config_exists() {
   [ -s "$RUNTIME_DIR/config.yaml" ]
 }
@@ -5804,6 +6017,7 @@ case "$cmd" in
   dev)            cmd_dev "$@" ;;
   config)         cmd_config "$@" ;;
   mixin)          cmd_mixin "$@" ;;
+  relay)          cmd_relay "$@" ;;
   profile)        cmd_profile "$@" ;;
   sub)            cmd_sub "$@" ;;
   proxy)          cmd_proxy "$@" ;;
