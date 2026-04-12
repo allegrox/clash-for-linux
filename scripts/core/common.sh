@@ -948,6 +948,81 @@ subscription_user_agent() {
   echo "${CLASH_SUBSCRIPTION_UA:-clash-verge/v2.4.0}"
 }
 
+openwrt_root_dir() {
+  echo "${CLASH_OPENWRT_ROOT:-/}"
+}
+
+openwrt_release_file() {
+  local root
+  root="$(openwrt_root_dir)"
+  echo "${root%/}/etc/openwrt_release"
+}
+
+openwrt_os_release_file() {
+  local root
+  root="$(openwrt_root_dir)"
+  echo "${root%/}/etc/os-release"
+}
+
+is_openwrt() {
+  local os_release
+
+  [ -f "$(openwrt_release_file)" ] && return 0
+
+  os_release="$(openwrt_os_release_file)"
+  [ -f "$os_release" ] || return 1
+  grep -Eq '(^ID="?openwrt"?$|^ID_LIKE=.*openwrt)' "$os_release" 2>/dev/null
+}
+
+openwrt_dependency_hint() {
+  echo "opkg update && opkg install bash curl tar gzip coreutils-readlink unzip"
+}
+
+openwrt_project_dir_is_persistent() {
+  local resolved
+
+  resolved="$(readlink -f "$PROJECT_DIR" 2>/dev/null || echo "$PROJECT_DIR")"
+  case "$resolved" in
+    /tmp|/tmp/*|/run|/run/*|/var/run|/var/run/*|/dev/shm|/dev/shm/*)
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
+ensure_openwrt_install_supported() {
+  local arch missing="" command_name
+
+  is_openwrt || return 0
+
+  arch="$(get_arch 2>/dev/null || echo "unsupported")"
+  case "$arch" in
+    amd64|arm64)
+      ;;
+    *)
+      die_state "OpenWrt 脚本模式暂只支持 x86_64/amd64 与 aarch64/arm64，当前架构：$arch" \
+                "如需 MIPS/armv7，请先确认 mihomo/clash、yq 与 subconverter 都有可用二进制"
+      ;;
+  esac
+
+  for command_name in bash curl tar gzip readlink unzip; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      missing="${missing}${missing:+ }$command_name"
+    fi
+  done
+
+  if [ -n "${missing:-}" ]; then
+    die_state "OpenWrt 缺少依赖命令：$missing" \
+              "请先安装依赖：$(openwrt_dependency_hint)"
+  fi
+
+  if ! openwrt_project_dir_is_persistent; then
+    die_state "OpenWrt 上当前项目目录位于易失路径：$PROJECT_DIR" \
+              "请将项目放到持久化目录（例如 /root/clash-for-linux 或 /opt/clash-for-linux）后重新执行 bash install.sh"
+  fi
+}
+
 detect_install_scope() {
   local requested="${1:-auto}"
 
@@ -1173,7 +1248,7 @@ get_os() {
 
 get_arch() {
   local arch
-  arch="$(uname -m)"
+  arch="${CLASH_TEST_UNAME_M:-$(uname -m)}"
   case "$arch" in
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
@@ -1314,6 +1389,7 @@ read_runtime_value() {
 }
 
 install_env_os() { read_runtime_value "INSTALL_ENV_OS" 2>/dev/null || true; }
+install_env_os_variant() { read_runtime_value "INSTALL_ENV_OS_VARIANT" 2>/dev/null || true; }
 install_env_arch() { read_runtime_value "INSTALL_ENV_ARCH" 2>/dev/null || true; }
 install_env_scope() { read_runtime_value "INSTALL_ENV_SCOPE" 2>/dev/null || true; }
 install_env_is_root() { read_runtime_value "INSTALL_ENV_IS_ROOT" 2>/dev/null || true; }
@@ -1739,10 +1815,12 @@ read_tun_last_action_time() {
 }
 
 systemd_available() {
+  is_openwrt && return 1
   command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 }
 
 systemd_user_available() {
+  is_openwrt && return 1
   command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files >/dev/null 2>&1
 }
 
@@ -1894,9 +1972,14 @@ tun_container_risk_reason() {
 }
 
 collect_install_environment() {
-  local os arch is_root container_type has_systemd has_systemd_user tun_safe
+  local os os_variant arch is_root container_type has_systemd has_systemd_user tun_safe
 
   os="$(get_os 2>/dev/null || echo "unknown")"
+  if is_openwrt; then
+    os_variant="openwrt"
+  else
+    os_variant="generic"
+  fi
   arch="$(get_arch 2>/dev/null || echo "unknown")"
 
   if is_root_user; then
@@ -1927,6 +2010,7 @@ collect_install_environment() {
 
   cat <<EOF
 INSTALL_ENV_OS=$os
+INSTALL_ENV_OS_VARIANT=$os_variant
 INSTALL_ENV_ARCH=$arch
 INSTALL_ENV_SCOPE=$INSTALL_SCOPE
 INSTALL_ENV_IS_ROOT=$is_root
@@ -1945,6 +2029,7 @@ mark_install_environment() {
   eval "$(collect_install_environment)"
 
   write_runtime_value "INSTALL_ENV_OS" "$INSTALL_ENV_OS"
+  write_runtime_value "INSTALL_ENV_OS_VARIANT" "$INSTALL_ENV_OS_VARIANT"
   write_runtime_value "INSTALL_ENV_ARCH" "$INSTALL_ENV_ARCH"
   write_runtime_value "INSTALL_ENV_SCOPE" "$INSTALL_ENV_SCOPE"
   write_runtime_value "INSTALL_ENV_IS_ROOT" "$INSTALL_ENV_IS_ROOT"
@@ -1955,6 +2040,11 @@ mark_install_environment() {
 }
 
 decide_install_backend() {
+  if is_openwrt; then
+    echo "script"
+    return 0
+  fi
+
   if [ "$INSTALL_SCOPE" = "system" ] && systemd_available; then
     echo "systemd"
     return 0
@@ -2139,6 +2229,12 @@ service_unit_name() {
 
 runtime_backend() {
   local backend
+
+  if is_openwrt; then
+    echo "script"
+    return 0
+  fi
+
   backend="$(read_runtime_value "RUNTIME_BACKEND" 2>/dev/null || true)"
   if [ -n "${backend:-}" ]; then
     echo "$backend"
@@ -2347,6 +2443,10 @@ user_local_bin_dir() {
 
 command_install_dir() {
   if [ "$INSTALL_SCOPE" = "system" ]; then
+    if is_openwrt; then
+      echo "/usr/bin"
+      return 0
+    fi
     echo "/usr/local/bin"
   else
     echo "$HOME/.local/bin"
@@ -2618,7 +2718,7 @@ install_runtime_brief_line() {
 print_install_summary() {
   local clashctl_file
   local kernel_text project_path arch_text install_actor install_scope_text
-  local env_mode env_mode_text backend_text subscription_text node_count runtime_file
+  local env_mode env_mode_text os_variant backend_text subscription_text node_count runtime_file
 
   clashctl_file="$(clashctl_source)"
   kernel_text="$(runtime_kernel_type 2>/dev/null || echo "unknown")"
@@ -2637,9 +2737,14 @@ print_install_summary() {
 
   env_mode="$(install_env_container 2>/dev/null || true)"
   [ -n "${env_mode:-}" ] || env_mode="$(container_env_type 2>/dev/null || echo "unknown")"
+  os_variant="$(install_env_os_variant 2>/dev/null || true)"
   case "${env_mode:-unknown}" in
     host)
-      env_mode_text="主机"
+      if [ "${os_variant:-}" = "openwrt" ]; then
+        env_mode_text="OpenWrt 主机"
+      else
+        env_mode_text="主机"
+      fi
       ;;
     container|docker|lxc)
       env_mode_text="容器"
