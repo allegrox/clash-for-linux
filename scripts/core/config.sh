@@ -174,6 +174,59 @@ tun_stack() {
   esac
 }
 
+config_bool_env_value() {
+  local key="$1"
+  local default_value="$2"
+  local value
+
+  value="${!key:-}"
+  [ -n "${value:-}" ] || value="$(read_env_value "$key" 2>/dev/null || true)"
+  [ -n "${value:-}" ] || value="$default_value"
+
+  case "$value" in
+    true|1|yes|on)
+      echo "true"
+      ;;
+    false|0|no|off)
+      echo "false"
+      ;;
+    *)
+      echo "$default_value"
+      ;;
+  esac
+}
+
+tun_auto_route() {
+  config_bool_env_value "CLASH_TUN_AUTO_ROUTE" "true"
+}
+
+tun_auto_redirect_default() {
+  if [ "$(get_os 2>/dev/null || echo unknown)" = "linux" ] \
+    && [ "$(container_env_type 2>/dev/null || echo unknown)" = "host" ] \
+    && [ "$(runtime_kernel_type 2>/dev/null || echo mihomo)" = "mihomo" ]; then
+    echo "true"
+    return 0
+  fi
+
+  echo "false"
+}
+
+tun_auto_redirect() {
+  config_bool_env_value "CLASH_TUN_AUTO_REDIRECT" "$(tun_auto_redirect_default)"
+}
+
+tun_strict_route() {
+  config_bool_env_value "CLASH_TUN_STRICT_ROUTE" "false"
+}
+
+tun_dns_hijack() {
+  local value
+  value="${CLASH_TUN_DNS_HIJACK:-}"
+  [ -n "${value:-}" ] || value="$(read_env_value "CLASH_TUN_DNS_HIJACK" 2>/dev/null || true)"
+  [ -n "${value:-}" ] || value="any:53,tcp://any:53"
+  echo "$value"
+}
+
 ensure_config_files() {
   mkdir -p "$CONFIG_DIR" "$(config_tmp_dir)"
 
@@ -190,6 +243,11 @@ tun:
   stack: system
   auto-route: true
   auto-detect-interface: true
+  auto-redirect: false
+  strict-route: false
+  dns-hijack:
+    - any:53
+    - tcp://any:53
 
 dns:
   enable: true
@@ -432,6 +490,7 @@ clear_subscription_cache() {
 normalize_runtime_config() {
   local file="$1"
   local mixed_port controller tun_enable_value tun_stack_value dns_port_value controller_secret_value
+  local tun_auto_route_value tun_auto_redirect_value tun_strict_route_value tun_dns_hijack_value
   local dashboard_dir_value
   local resolved_ports
 
@@ -444,6 +503,10 @@ normalize_runtime_config() {
   controller="$EXTERNAL_CONTROLLER_RESOLVED"
   tun_enable_value="$(tun_enabled)"
   tun_stack_value="$(tun_stack)"
+  tun_auto_route_value="$(tun_auto_route)"
+  tun_auto_redirect_value="$(tun_auto_redirect)"
+  tun_strict_route_value="$(tun_strict_route)"
+  tun_dns_hijack_value="$(tun_dns_hijack)"
   dns_port_value="$CLASH_DNS_PORT_RESOLVED"
   controller_secret_value="$(ensure_controller_secret)"
   dashboard_dir_value="$(runtime_dashboard_dir)"
@@ -452,6 +515,10 @@ normalize_runtime_config() {
   controller="$controller" \
   tun_enable_value="$tun_enable_value" \
   tun_stack_value="$tun_stack_value" \
+  tun_auto_route_value="$tun_auto_route_value" \
+  tun_auto_redirect_value="$tun_auto_redirect_value" \
+  tun_strict_route_value="$tun_strict_route_value" \
+  tun_dns_hijack_value="$tun_dns_hijack_value" \
   controller_secret_value="$controller_secret_value" \
   dashboard_dir_value="$dashboard_dir_value" \
   dns_listen_value="0.0.0.0:${dns_port_value}" \
@@ -467,8 +534,11 @@ normalize_runtime_config() {
 
     .tun.enable = (env(tun_enable_value) == "true") |
     .tun.stack = env(tun_stack_value) |
-    .tun["auto-route"] = (.tun["auto-route"] // true) |
+    .tun["auto-route"] = (env(tun_auto_route_value) == "true") |
     .tun["auto-detect-interface"] = (.tun["auto-detect-interface"] // true) |
+    .tun["auto-redirect"] = (env(tun_auto_redirect_value) == "true") |
+    .tun["strict-route"] = (env(tun_strict_route_value) == "true") |
+    .tun["dns-hijack"] = (env(tun_dns_hijack_value) | split(",") | map(select(. != ""))) |
 
     .dns.enable = (.dns.enable // true) |
     .dns["enhanced-mode"] = (.dns["enhanced-mode"] // "fake-ip") |
@@ -736,7 +806,7 @@ print_subscription_health_summary() {
 
     risk_marker=""
     if subscription_auto_disabled "$name"; then
-      risk_marker="⚠️"
+      risk_marker="🚨"
     fi
 
     if [ "$name" = "$active" ]; then
@@ -788,14 +858,14 @@ print_subscription_health_one() {
   url_text="$(subscription_url_by_name "$name" 2>/dev/null || true)"
 
   echo "📡 订阅名称：$name"
-  echo "⚙️ 订阅类型：$type_text"
+  echo "🔧 订阅类型：$type_text"
   echo "🟢 启用状态：$enabled_text"
   echo "❤️ 健康状态：${status:-unknown}"
-  echo "⚠️ 失败次数：${fail_count:-0}"
+  echo "🚨 失败次数：${fail_count:-0}"
   [ -n "${last_success:-}" ] && echo "🕒 最近成功：$last_success"
   [ -n "${last_failure:-}" ] && echo "🕒 最近失败：$last_failure"
   [ -n "${last_error:-}" ] && echo "❌ 最近错误：$last_error"
-  [ -n "${auto_disabled:-}" ] && echo "⚠️ 风险标记：$auto_disabled"
+  [ -n "${auto_disabled:-}" ] && echo "🚨 风险标记：$auto_disabled"
   [ -n "${auto_disabled_at:-}" ] && echo "🕒 风险时间：$auto_disabled_at"
   [ -n "${url_text:-}" ] && echo "🔗 订阅地址：$url_text"
 }
@@ -2400,9 +2470,9 @@ subscription_list_overview_lines() {
   recommended="$(recommended_subscription_name 2>/dev/null || true)"
 
   if [ -n "${active:-}" ]; then
-    echo "📡 当前主订阅：$active"
+    echo "🚩 当前主订阅：$active"
   else
-    echo "📡 当前主订阅：未设置"
+    echo "🚩 当前主订阅：未设置"
   fi
 
   if [ -n "${recommended:-}" ] && [ "${recommended:-}" != "${active:-}" ]; then
@@ -3207,7 +3277,8 @@ generate_config() {
   included_csv="$active_source"
 
   cp -f "$source_file" "$out_file"
-  cp -f "$source_file" "$RUNTIME_DIR/config.last.yaml"
+  apply_runtime_mixin "$out_file"
+  cp -f "$out_file" "$RUNTIME_DIR/config.last.yaml"
   save_build_stage_snapshot "active-source-ready" "$source_file"
 
   record_build_success \
@@ -3219,7 +3290,7 @@ generate_config() {
     "$failed_csv"
 
   mark_runtime_config_source "build-active"
-  success "配置文件已生成：$out_file"
+  # success "配置文件已生成：$out_file"
   return 0
 }
 

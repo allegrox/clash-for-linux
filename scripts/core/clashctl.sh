@@ -15,7 +15,7 @@ source "$PROJECT_DIR/scripts/init/script.sh"
 
 usage() {
   cat <<EOF
-😼 Clash 控制台
+🐱 Clash 控制台
 
 Usage:
   clashon                        🚀 开启代理
@@ -23,21 +23,21 @@ Usage:
   clashctl <command>
 
 🚀 Main Path:
-  add [url] [name]               ➕ 添加订阅
-  use                            🔁 切换当前订阅
+  add                            ➕ 添加订阅
+  use                            💱 切换订阅
   select                         💫 切换节点
-  status                         😼 查看状态总览
+
 
 📦 Subscription:
   ls                             📡 查看订阅列表
-  health                         🩷  查看订阅健康
 
 🕹️  Control:
   ui                             🕹️  查看 Web 控制台
   secret                         🔑 查看或设置 Web 密钥
 
-🧭 Diagnose:
-  doctor                         🧭 诊断环境与运行状态
+🩺 Diagnose:
+  doctor                         🩺 诊断环境与运行状态
+  status                         🔍️ 查看状态总览
   log/logs                       📜 查看日志
 
 💡 更多高级能力：clashctl help advanced
@@ -46,7 +46,7 @@ EOF
 
 usage_advanced() {
   cat <<EOF
-😼 Clash 高级命令
+🐱 Clash 高级命令
 
 🧩 Config:
   config                         🧩 配置编译管理
@@ -54,11 +54,12 @@ usage_advanced() {
 
 📡 Subscription Advanced:
   sub                            📡 订阅高级管理（启用 / 禁用 / 重命名 / 删除）
+  health                         🩷  多订阅健康审计
 
-🧪 Runtime & Diagnose:
+🩺 Runtime & Diagnose:
   tun                            🧪 Tun 模式管理
-  doctor                         🧭 诊断环境与运行状态
-  log/logs                       📜 查看日志
+  tun doctor                         🩺 诊断环境与运行状态
+  tun log/logs                       📜 查看日志
 
 🚀 Lifecycle:
   upgrade                        🚀 升级当前或指定内核
@@ -224,7 +225,7 @@ print_on_feedback() {
   fi
 
   if [ "$controller_ready" = "true" ] && [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "� 控制台：http://${controller}/ui"
+    echo "🐱 控制台：http://${controller}/ui"
     [ -n "${controller_lan:-}" ] && echo "🏠 局域网：http://${controller_lan}/ui"
     if [ -n "${controller_public:-}" ]; then
       echo "🌍 公网：http://${controller_public}/ui"
@@ -236,10 +237,10 @@ print_on_feedback() {
       fi
     fi
   elif [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "� 控制台：控制器暂不可访问"
+    echo "🐱 控制台：控制器暂不可访问"
     echo "🌍 公网：控制器暂不可访问"
   else
-    echo "� 控制台：未知"
+    echo "🐱 控制台：未知"
   fi
 
   echo "👉 下一步：$next_action"
@@ -844,7 +845,7 @@ system_state_recommendation_lines() {
   case "$SYSTEM_STATE" in
     ready)
       echo "1. clashctl select"
-      echo "2. clashctl health"
+      echo "2. clashctl ls"
       ;;
     stopped)
       if [ "$SUBSCRIPTION_STATE" = "missing" ]; then
@@ -863,7 +864,7 @@ system_state_recommendation_lines() {
         echo "1. clashctl add <订阅链接>"
       else
         echo "1. clashctl doctor"
-        echo "2. clashctl health"
+        echo "2. clashctl ls"
       fi
       ;;
     *)
@@ -1071,7 +1072,7 @@ print_config_apply_feedback() {
       echo "🔴 构建结果：failed"
       ;;
     blocked)
-      echo "⚠️ 构建结果：blocked"
+      echo "🚨 构建结果：blocked"
       ;;
     *)
       echo "⚪ 构建结果：unknown"
@@ -1083,7 +1084,7 @@ print_config_apply_feedback() {
       echo "🟢 是否应用：true"
       ;;
     false)
-      echo "⚠️ 是否应用：false"
+      echo "🚨 是否应用：false"
       ;;
     *)
       echo "⚪ 是否应用：unknown"
@@ -1134,8 +1135,9 @@ print_add_feedback() {
   local name="$1"
   local url="${2:-}"
 
-  echo "✔ 已添加订阅：$name"
+  echo "✔ 已添加订阅并设为当前主订阅：$name"
   [ -n "${url:-}" ] && echo "📡 URL：$url"
+  echo "📋 最新订阅列表（clashctl ls）："
 }
 
 print_use_context() {
@@ -1147,9 +1149,9 @@ print_use_context() {
   ui_title "🔁 切换当前订阅"
 
   if [ -n "${active:-}" ]; then
-    ui_kv "📡" "当前主订阅" "$active"
+    ui_kv "🚩" "当前主订阅" "$active"
   else
-    ui_kv "📡" "当前主订阅" "未设置"
+    ui_kv "🚩" "当前主订阅" "未设置"
   fi
 
   if [ -n "${recommended:-}" ] && [ "${recommended:-}" != "${active:-}" ]; then
@@ -1176,7 +1178,7 @@ print_use_feedback() {
     health="$(subscription_health_status "$name" 2>/dev/null || echo "unknown")"
     fail_count="$(subscription_fail_count "$name" 2>/dev/null || echo "0")"
 
-    ui_kv "📡" "当前主订阅" "$name"
+    ui_kv "🚩" "当前主订阅" "$name"
     ui_kv "❤️" "订阅状态" "$enabled_text / $health / fail=$fail_count"
   fi
 
@@ -1188,8 +1190,6 @@ print_use_feedback() {
 
 print_select_context() {
   local current_proxy
-
-  ui_title "🚀 切换节点"
 
   if ! status_is_running; then
     ui_kv "🔴" "代理状态" "未运行"
@@ -1271,7 +1271,7 @@ print_sub_disable_feedback() {
   ui_kv "📡" "订阅名称" "$name"
 
   if [ "$name" = "$active" ]; then
-    ui_kv "⚠️" "当前主订阅" "已被禁用"
+    ui_kv "🚨" "当前主订阅" "已被禁用"
     ui_next "clashctl use"
   else
     ui_kv "🧩" "当前主订阅" "${active:-未设置}"
@@ -1304,7 +1304,7 @@ print_sub_remove_feedback() {
 
   ui_title "📡 订阅已删除"
   ui_kv "📡" "已删除" "$name"
-  ui_kv "📡" "当前主订阅" "${active:-未设置}"
+  ui_kv "🚩" "当前主订阅" "${active:-未设置}"
   main_feedback_build_mode
   main_feedback_runtime_state
   ui_next "clashctl ls"
@@ -1333,16 +1333,16 @@ print_tun_container_gate_feedback() {
 
   case "$mode" in
     host)
-      ui_kv "�" "环境模式" "主机环境"
+      ui_kv "💻" "环境模式" "主机环境"
       ui_kv "🟢" "容器裁决" "允许正常开启"
       ;;
     container-safe)
-      ui_kv "�" "环境模式" "容器环境"
-      ui_kv "⚠️" "容器裁决" "允许开启，但属于保守通过"
-      [ -n "${reason:-}" ] && ui_kv "⚠️" "注意事项" "$reason"
+      ui_kv "💻" "环境模式" "容器环境"
+      ui_kv "🚨" "容器裁决" "允许开启，但属于保守通过"
+      [ -n "${reason:-}" ] && ui_kv "🚨" "注意事项" "$reason"
       ;;
     container-risky)
-      ui_kv "�" "环境模式" "容器环境"
+      ui_kv "💻" "环境模式" "容器环境"
       ui_kv "🔴" "容器裁决" "高风险，已阻断开启"
       [ -n "${reason:-}" ] && ui_kv "🔴" "阻断原因" "$reason"
       ui_next "clashctl tun doctor"
@@ -1350,7 +1350,7 @@ print_tun_container_gate_feedback() {
       ;;
     *)
       ui_kv "⚪" "容器裁决" "未知"
-      [ -n "${reason:-}" ] && ui_kv "⚠️" "原因" "$reason"
+      [ -n "${reason:-}" ] && ui_kv "🚨" "原因" "$reason"
       ;;
   esac
 
@@ -1366,32 +1366,51 @@ print_tun_container_gate_feedback() {
 }
 
 print_tun_on_feedback() {
-  local verify_result stack auto_route
+  local verify_result kernel stack auto_route auto_redirect
+  local status_icon status_text detail
 
   verify_result="$1"
+  kernel="$(runtime_kernel_type 2>/dev/null || echo unknown)"
   stack="$(runtime_config_tun_stack 2>/dev/null || tun_stack 2>/dev/null || echo unknown)"
   auto_route="$(runtime_config_tun_auto_route 2>/dev/null || echo false)"
-
-  echo
-  ui_title "🧪 Tun 模式已处理"
-  ui_kv "🧪" "目标状态" "开启"
-  ui_kv "⚙️ " "Tun stack" "${stack:-unknown}"
-  ui_kv "🧭" "auto-route" "${auto_route:-false}"
+  auto_redirect="$(runtime_config_tun_auto_redirect 2>/dev/null || echo false)"
 
   case "$verify_result" in
     ok)
-      ui_kv "🟢" "验证结果" "已生效"
+      status_icon="🟢"
+      status_text="已生效"
+      detail="已通过 Tun 即时验证"
+      ;;
+    policy-routing-likely-effective)
+      status_icon="🟢"
+      status_text="已生效"
+      if tun_log_tun_source_line >/dev/null 2>&1; then
+        detail="已检测到 Tun 适配器、policy routing 与 Tun 源地址流量"
+      else
+        detail="已检测到 Tun 适配器与 policy routing，建议用 tun doctor 查看完整证据"
+      fi
+      ;;
+    disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+      status_icon="🔴"
+      status_text="未生效"
+      detail="即时验证未通过：$verify_result"
       ;;
     *)
-      ui_kv "🔴" "验证结果" "未生效"
+      status_icon="🟡"
+      status_text="已开启，仍在确认"
+      detail="Tun 已开启，但即时验证仍需结合完整证据确认：$verify_result"
       ;;
   esac
 
-  if [ "$(container_env_type)" != "host" ]; then
-    ui_warn "当前处于容器环境，Tun 可能受宿主机权限或设备映射限制"
-  fi
+  ui_title "🧪 Tun 模式已开启"
+  ui_kv "🚀" "当前内核" "${kernel:-unknown}"
+  ui_kv "🔧 " "Tun stack" "${stack:-unknown}"
+  ui_kv "📜" "auto-route" "${auto_route:-false}"
+  ui_kv "📜" "auto-redirect" "${auto_redirect:-false}"
+  ui_kv "$status_icon" "当前状态" "$status_text"
+  echo "💡 $detail"
 
-  ui_next "clashctl tun doctor"
+  ui_next "查看完整证据：clashctl tun doctor"
   ui_blank
 }
 
@@ -1401,8 +1420,7 @@ print_tun_off_feedback() {
   verify_result="$1"
   route_dev="$(default_route_dev 2>/dev/null || true)"
 
-  echo
-  ui_title "🧪 Tun 模式已处理"
+  ui_title "🧪 Tun 模式已关闭"
   ui_kv "🧪" "目标状态" "关闭"
 
   case "$verify_result" in
@@ -1411,13 +1429,37 @@ print_tun_off_feedback() {
       [ -n "${route_dev:-}" ] && ui_kv "🌐" "当前默认路由设备" "$route_dev"
       ;;
     *)
-      ui_kv "⚠️" "验证结果" "Tun 关闭后仍存在残留或运行异常"
-      ui_kv "⚠️" "原因" "$verify_result"
+      ui_kv "🚨" "验证结果" "Tun 关闭后仍存在残留或运行异常"
+      ui_kv "🚨" "原因" "$verify_result"
       ;;
   esac
 
   ui_next "clashctl tun doctor"
   ui_blank
+}
+
+tun_on_verify_result() {
+  local result auto_redirect
+
+  result="${1:-unknown}"
+  case "$result" in
+    ok)
+      echo "ok"
+      return 0
+      ;;
+    disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+      echo "$result"
+      return 0
+      ;;
+  esac
+
+  auto_redirect="$(runtime_config_tun_auto_redirect 2>/dev/null || echo false)"
+  if [ "${auto_redirect:-false}" = "true" ] && tun_has_policy_routing_evidence 2>/dev/null; then
+    echo "policy-routing-likely-effective"
+    return 0
+  fi
+
+  echo "$result"
 }
 
 status_subscription_health_summary() {
@@ -1436,8 +1478,8 @@ status_subscription_health_summary() {
   fi
 
   echo "❤️ 健康状态：$health"
-  echo "⚠️ 失败次数：$fail_count"
-  echo "⚠️ 阈值命中：$auto_disabled"
+  echo "🚨 失败次数：$fail_count"
+  echo "🚨 阈值命中：$auto_disabled"
 
   if [ -n "$(subscription_last_success "$active" 2>/dev/null || true)" ]; then
     echo "🕒 最近成功：$(subscription_last_success "$active" 2>/dev/null || true)"
@@ -1664,7 +1706,7 @@ connectivity_next_action() {
       echo "clashctl doctor"
       ;;
     subscription_unhealthy)
-      echo "clashctl health"
+      echo "clashctl ls"
       ;;
     proxy_control_broken)
       echo "clashctl status --verbose"
@@ -1905,7 +1947,7 @@ print_status_summary_compact() {
   fi
 
   echo
-  echo "😼 Clash 状态总览"
+  echo "🐱 Clash 状态总览"
   echo
 
   echo "【当前结果】"
@@ -1913,16 +1955,16 @@ print_status_summary_compact() {
   echo "🌐 当前可用性：$user_connectivity"
   echo "📡 当前订阅：${current_active:-未设置}"
   echo "🚀 当前节点：$current_proxy_brief"
-  echo "⚠️ 当前风险：$user_risk"
+  echo "🚨 当前风险：$user_risk"
   echo "👉 clashctl select  切换节点"
   echo
 
   echo "【核心入口】"
-  echo "⚙️ Profile：$profile"
-  echo "⚙️ 运行后端：$(status_runtime_backend_text)"
+  echo "🔧 Profile：$profile"
+  echo "🔧 运行后端：$(status_runtime_backend_text)"
   echo "🧪 环境模式：$(status_container_mode_text)"
   echo "🧪 Tun 状态：${tun_text:-未知}"
-  echo "🧭 系统代理状态：${system_proxy_text}"
+  echo "📜 系统代理状态：${system_proxy_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
@@ -1934,7 +1976,7 @@ print_status_summary_compact() {
   fi
 
   if [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "� 控制台：http://${controller}/ui"
+    echo "🐱 控制台：http://${controller}/ui"
     [ -n "${controller_lan:-}" ] && echo "🏠 局域网：http://${controller_lan}/ui"
     if [ -n "${controller_public:-}" ]; then
       echo "🌍 公网：http://${controller_public}/ui"
@@ -1942,7 +1984,7 @@ print_status_summary_compact() {
       echo "🌍 公网：需公网 IP / 端口映射后可访问"
     fi
   else
-    echo "� 控制台：未知"
+    echo "🐱 控制台：未知"
   fi
 
   echo
@@ -2050,7 +2092,7 @@ print_status_summary_verbose() {
   fi
 
   echo
-  echo "😼 Clash 状态总览"
+  echo "🐱 Clash 状态总览"
   echo
 
   echo "【当前结果】"
@@ -2058,12 +2100,12 @@ print_status_summary_verbose() {
   echo "🌐 当前可用性：$user_connectivity"
   echo "📡 当前订阅：${current_active:-未设置}"
   echo "🚀 当前节点：$current_proxy_brief"
-  echo "⚠️ 当前风险：$user_risk"
+  echo "🚨 当前风险：$user_risk"
   echo "👉 clashctl select  切换节点"
   echo
 
   echo "【核心入口】"
-  echo "⚙️ Profile：$profile"
+  echo "🔧 Profile：$profile"
   if [ -n "${mixed_port:-}" ] && [ "$mixed_port" != "null" ]; then
     echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
   else
@@ -2071,7 +2113,7 @@ print_status_summary_verbose() {
   fi
 
   if [ -n "${controller:-}" ] && [ "$controller" != "null" ]; then
-    echo "� 控制台：http://${controller}/ui"
+    echo "🐱 控制台：http://${controller}/ui"
     [ -n "${controller_lan:-}" ] && echo "🏠 局域网：http://${controller_lan}/ui"
     if [ -n "${controller_public:-}" ]; then
       echo "🌍 公网：http://${controller_public}/ui"
@@ -2079,24 +2121,24 @@ print_status_summary_verbose() {
       echo "🌍 公网：需公网 IP / 端口映射后可访问"
     fi
   else
-    echo "� 控制台：未知"
+    echo "🐱 控制台：未知"
   fi
   echo
 
   echo "【安装上下文】"
-  echo "⚙️ 运行后端：${install_backend_text:-unknown}"
+  echo "🔧 运行后端：${install_backend_text:-unknown}"
   echo "💡 后端原因：$(status_runtime_backend_reason_text 2>/dev/null || echo unknown)"
   echo "🧪 环境模式：${install_container_text:-unknown}"
   echo "🧩 安装验证：${install_verify_text:-unknown}"
-  echo "🧭 端口裁决：${port_adjustment_text:-unknown}"
-  echo "🧭 系统代理状态：${system_proxy_text}"
+  echo "📜 端口裁决：${port_adjustment_text:-unknown}"
+  echo "📜 系统代理状态：${system_proxy_text}"
   echo "🧩 Dashboard：${dashboard_text}（来源：${dashboard_source_text}）"
   echo "🧩 Dashboard 策略：${dashboard_policy_text}"
   echo "🔐 控制器密钥：${secret_text}"
   echo
 
   if [ -n "$(install_plan_controller 2>/dev/null || true)" ]; then
-    echo "� 安装期控制器：$(display_controller_local_addr "$(install_plan_controller 2>/dev/null || true)" 2>/dev/null || install_plan_controller 2>/dev/null || true)"
+    echo "🐱 安装期控制器：$(display_controller_local_addr "$(install_plan_controller 2>/dev/null || true)" 2>/dev/null || install_plan_controller 2>/dev/null || true)"
   fi
 
   if [ -n "$(install_plan_mixed_port 2>/dev/null || true)" ]; then
@@ -2113,8 +2155,8 @@ print_status_summary_verbose() {
   fi
 
   echo "🧪 Tun 生效：${tun_effective:-未知}"
-  echo "⚙️  Tun stack：${tun_stack:-unknown}"
-  echo "� 容器裁决：${tun_container_text:-未知}"
+  echo "🔧  Tun stack：${tun_stack:-unknown}"
+  echo "🐱 容器裁决：${tun_container_text:-未知}"
   echo "🚀 内核支持：${tun_kernel_text:-未知}"
   echo
 
@@ -2148,7 +2190,7 @@ print_status_summary_verbose() {
       echo "🟢 最近构建应用：true @ ${build_applied_time:-unknown}"
       ;;
     false)
-      echo "⚠️ 最近构建应用：false @ ${build_applied_time:-unknown}"
+      echo "🚨 最近构建应用：false @ ${build_applied_time:-unknown}"
       [ -n "${build_applied_reason:-}" ] && echo "未应用原因：${build_applied_reason}"
       ;;
     *)
@@ -2157,9 +2199,9 @@ print_status_summary_verbose() {
   esac
 
   if [ -n "${build_block_reason:-}" ]; then
-    echo "⚠️ 最近阻断：${build_block_reason} @ ${build_block_time:-unknown}"
+    echo "🚨 最近阻断：${build_block_reason} @ ${build_block_time:-unknown}"
   else
-    echo "⚠️ 最近阻断：无"
+    echo "🚨 最近阻断：无"
   fi
 
   if [ -n "${last_switch_to:-}" ]; then
@@ -2169,10 +2211,10 @@ print_status_summary_verbose() {
   fi
 
   if [ "${fallback_used:-false}" = "true" ]; then
-    echo "⚠️ 最近回退：true @ ${fallback_time:-unknown}"
+    echo "🚨 最近回退：true @ ${fallback_time:-unknown}"
     [ -n "${fallback_reason:-}" ] && echo "回退原因：${fallback_reason}"
   else
-    echo "⚠️ 最近回退：false"
+    echo "🚨 最近回退：false"
   fi
   echo
 
@@ -2185,7 +2227,7 @@ print_status_summary_verbose() {
   echo
 
   echo "【网络闭环】"
-  echo "🧭 问题裁决：$(connectivity_issue_text)"
+  echo "📜 问题裁决：$(connectivity_issue_text)"
   echo "🔍 关键证据："
   connectivity_evidence_lines | sed 's/^/  /'
   echo
@@ -2344,17 +2386,27 @@ cmd_ui_box() {
 
 cmd_ui_help_summary() {
   echo "〽️ 常用命令"
-  printf '  %-18s %s\n' "clashon" "开启代理"
-  printf '  %-18s %s\n' "clashoff" "关闭代理"
-  printf '  %-18s %s\n' "clashctl select" "选择节点"
+  printf '  %-18s %s\n' "clashon" "🚀 开启代理"
+  printf '  %-18s %s\n' "clashoff" "⛔ 关闭代理"
+  printf '  %-18s %s\n' "clashctl select" "💫 选择节点"
+  echo "🕹️  控制台"
+  printf '  %-18s %s\n' "clashctl ui" "🕹️  查看 Web 控制台"
+  printf '  %-18s %s\n' "clashctl secret" "🔑 查看或设置 Web 密钥"
   echo "📦 订阅"
-  printf '  %-18s %s\n' "clashctl add" "添加订阅"
-  printf '  %-18s %s\n' "clashctl use" "切换订阅"
-  printf '  %-18s %s\n' "clashctl ls" "查看订阅"
-  echo "🧭 状态"
-  printf '  %-18s %s\n' "clashctl status" "查看状态"
-  printf '  %-18s %s\n' "clashctl doctor" "诊断面板"
+  printf '  %-18s %s\n' "clashctl add" "➕ 添加订阅"
+  printf '  %-18s %s\n' "clashctl use" "💱 切换订阅"
+  printf '  %-18s %s\n' "clashctl ls" "📡 查看订阅列表"
+  echo "📌 高级"
+  printf '  %-18s %s\n' "clashctl tun" "🧪 Tun 模式管理"
+  printf '  %-18s %s\n' "clashctl mixin" "🧩 Mixin 配置管理"
+  printf '  %-18s %s\n' "clashctl sub" "🧩 订阅高级管理（启用 / 禁用 / 重命名 / 删除）"
+  printf '  %-18s %s\n' "clashctl upgrade" "🚀 升级当前或指定内核"
+  printf '  %-18s %s\n' "clashctl update" "🔄 更新项目代码"
+  echo "📜 日志"
+  printf '  %-18s %s\n' "clashctl doctor" "🩺 诊断面板"
+  printf '  %-18s %s\n' "clashctl log/logs" "📜 查看日志"
   echo
+  echo "💡 显示更多帮助命令：clashctl -h"
 }
 
 logs_mihomo() {
@@ -3112,11 +3164,11 @@ cmd_doctor() {
   prepare
   load_system_state
 
-  ui_title "🧭 系统诊断"
+  ui_title "📜 系统诊断"
 
   ui_section "总体结论"
   doctor_primary_conclusion
-  ui_kv "⚠️" "风险等级" "$(doctor_risk_text)"
+  ui_kv "🚨" "风险等级" "$(doctor_risk_text)"
   ui_blank
 
   ui_section "发现的问题"
@@ -3170,7 +3222,7 @@ cmd_dev() {
       echo
       ;;
     "")
-      echo "🧭 用法：clashctl dev reset"
+      echo "📜 用法：clashctl dev reset"
       ;;
     *)
       die_usage "未知的 dev 子命令：$1" "clashctl dev reset"
@@ -3190,7 +3242,7 @@ cmd_config_show() {
   config_source="$(status_runtime_config_source 2>/dev/null || true)"
 
   ui_title "🧩 配置编译管理"
-  ui_kv "📡" "当前主订阅" "${active:-未设置}"
+  ui_kv "🚩" "当前主订阅" "${active:-未设置}"
   ui_kv "🚀" "当前内核" "${kernel:-mihomo}"
   ui_kv "🧩" "编译模式" "active-only"
   ui_kv "🟢" "最近构建" "${build_status:-unknown}${build_time:+ @ ${build_time}}"
@@ -3228,7 +3280,7 @@ cmd_config() {
       ;;
     "")
       ui_title "🧩 配置编译管理"
-      echo "🧭 用法："
+      echo "📜 用法："
       echo "  clashctl config show"
       echo "  clashctl config explain"
       echo "  clashctl config regen"
@@ -3250,8 +3302,8 @@ cmd_config() {
 print_profile_use_feedback() {
   local profile="$1"
 
-  ui_title "⚙️ Profile 已切换"
-  ui_kv "⚙️" "当前 Profile" "$profile"
+  ui_title "🔧 Profile 已切换"
+  ui_kv "🔧" "当前 Profile" "$profile"
   main_feedback_runtime_state
   ui_next "clashctl status"
   ui_blank
@@ -3328,12 +3380,73 @@ cmd_mixin_show() {
 
   ui_title "🧩 Mixin 配置"
   ui_kv "🧩" "作用" "对原始订阅配置进行补充、覆盖或前后置合并"
-  ui_kv "⚙️" "配置文件" "$file"
+  ui_kv "🔧" "配置文件" "$file"
   ui_blank
-  cat "$file"
+  if mixin_config_is_empty "$file"; then
+    print_mixin_template_example
+  else
+    cat "$file"
+  fi
   ui_blank
   ui_next "clashctl mixin edit"
   ui_blank
+}
+
+mixin_config_is_empty() {
+  local file="$1"
+  local compact noop
+
+  [ -s "$file" ] || return 0
+
+  if [ -x "$(yq_bin)" ]; then
+    noop="$("$(yq_bin)" eval '
+      ((.override // {}) == {}) and
+      (((.prepend.proxies // []) | length) == 0) and
+      (((.prepend["proxy-groups"] // []) | length) == 0) and
+      (((.prepend.rules // []) | length) == 0) and
+      (((.append.proxies // []) | length) == 0) and
+      (((.append["proxy-groups"] // []) | length) == 0) and
+      (((.append.rules // []) | length) == 0)
+    ' "$file" 2>/dev/null | head -n 1 || true)"
+    [ "$noop" = "true" ] && return 0
+  fi
+
+  compact="$(tr -d '[:space:]' < "$file" 2>/dev/null || true)"
+  case "$compact" in
+    ""|"{}")
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+print_mixin_template_example() {
+  cat <<'EOF'
+当前 mixin 还没有实际补丁。可按这个结构填写：
+
+override:
+  mixed-port: 7890
+  dns:
+    enable: true
+
+prepend:
+  proxies: []
+  proxy-groups: []
+  rules:
+    - DOMAIN-SUFFIX,example.com,DIRECT
+
+append:
+  proxies: []
+  proxy-groups: []
+  rules:
+    - MATCH,节点选择
+
+说明：
+  override 会覆盖同名字段
+  prepend 会把数组内容放到原始订阅前面
+  append 会把数组内容放到原始订阅后面
+EOF
 }
 
 cmd_mixin_edit() {
@@ -3368,7 +3481,7 @@ cmd_mixin_raw() {
   echo "📡 原始订阅配置"
   echo
   echo "📡 说明：这是当前活动订阅拉取到的原始配置，不包含 Mixin 最终合并结果"
-  echo "⚙️ 来源文件：$file"
+  echo "🔧 来源文件：$file"
   echo
   cat "$file"
   echo
@@ -3387,7 +3500,7 @@ cmd_mixin_runtime() {
   echo "🧩 运行时配置"
   echo
   echo "🧩 说明：这是当前内核真正加载的最终配置"
-  echo "⚙️ 配置文件：$file"
+  echo "🔧 配置文件：$file"
   echo
   cat "$file"
   echo
@@ -3411,7 +3524,7 @@ cmd_mixin() {
       ;;
     help|-h|--help)
       ui_title "🧩 Mixin 配置管理"
-      echo "🧭 用法："
+      echo "📜 用法："
       echo "  clashctl mixin"
       echo "  clashctl mixin edit"
       echo "  clashctl mixin raw"
@@ -3488,23 +3601,23 @@ doctor_problem_lines() {
   active_sub="$(active_subscription_name 2>/dev/null || true)"
 
   if ! runtime_config_exists; then
-    echo "⚠️ 运行配置缺失"
+    echo "🚨 运行配置缺失"
   fi
 
   if ! status_is_running; then
-    echo "⚠️ 代理内核未运行"
+    echo "🚨 代理内核未运行"
   fi
 
   if status_is_running && ! proxy_controller_reachable 2>/dev/null; then
-    echo "⚠️ 控制器不可访问"
+    echo "🚨 控制器不可访问"
   fi
 
   if [ -n "${active_sub:-}" ] && ! active_subscription_enabled 2>/dev/null; then
-    echo "⚠️ 当前主订阅不可用"
+    echo "🚨 当前主订阅不可用"
   fi
 
   if [ "$(status_build_last_status 2>/dev/null || true)" = "failed" ]; then
-    echo "⚠️ 最近一次编译失败"
+    echo "🚨 最近一次编译失败"
   fi
 }
 
@@ -3554,13 +3667,13 @@ doctor_recommendation_lines() {
 
   if [ -n "${active_sub:-}" ] && ! active_subscription_enabled 2>/dev/null; then
     echo "💡 clashctl use"
-    echo "💡 clashctl health"
+    echo "💡 clashctl ls"
     return 0
   fi
 
   if [ "$(status_build_last_status 2>/dev/null || true)" = "failed" ]; then
-    echo "💡 clashctl health"
     echo "💡 clashctl config regen"
+    echo "💡 clashctl doctor"
     return 0
   fi
 
@@ -3646,10 +3759,10 @@ cmd_secret() {
       if [ -n "${current_secret:-}" ] && [ "$current_secret" != "null" ]; then
         ui_kv "🔑" "当前密钥" "$current_secret"
       else
-        ui_kv "⚠️" "当前密钥" "未设置"
+        ui_kv "🚨" "当前密钥" "未设置"
       fi
 
-      ui_kv "�" "用途" "用于访问 Clash Web 控制台"
+      ui_kv "🐱" "用途" "用于访问 Clash Web 控制台"
       ui_next "clashctl ui"
       ui_blank
       echo
@@ -3695,13 +3808,13 @@ cmd_tun_status() {
     echo "🔴 当前状态：未开启"
   fi
 
-  echo "⚙️  Tun stack：$stack"
+  echo "🔧  Tun stack：$stack"
   echo "💻 环境类型：$env_type"
 
   if can_manage_tun_safely; then
     echo "🟢 环境检查：满足基础开启条件"
   else
-    echo "⚠️ 环境检查：当前不满足基础开启条件"
+    echo "🚨 环境检查：当前不满足基础开启条件"
   fi
 
   if [ "$effective_status" = "effective" ]; then
@@ -3752,7 +3865,7 @@ cmd_tun_on() {
   if ! can_manage_tun_safely; then
     echo
     echo "🔴 Tun 模式无法开启"
-    echo "⚠️ 原因：当前环境不满足基础 Tun 条件"
+    echo "🚨 原因：当前环境不满足基础 Tun 条件"
     echo "👉 下一步：clashctl tun doctor"
     echo
     return 1
@@ -3778,16 +3891,23 @@ cmd_tun_on() {
 
   verify_result="$(tun_effective_check 2>/dev/null || true)"
   [ -n "${verify_result:-}" ] || verify_result="unknown"
+  verify_result="$(tun_on_verify_result "$verify_result")"
 
-  if [ "$verify_result" = "ok" ]; then
-    mark_tun_last_action "on" "success" "effective"
-    mark_tun_last_verification "success" "effective"
-  else
-    mark_tun_last_action "on" "partial" "$verify_result"
-    mark_tun_last_verification "partial" "$verify_result"
-  fi
+  case "$verify_result" in
+    ok)
+      mark_tun_last_action "on" "success" "effective"
+      mark_tun_last_verification "success" "effective"
+      ;;
+    policy-routing-likely-effective)
+      mark_tun_last_action "on" "success" "$verify_result"
+      mark_tun_last_verification "success" "$verify_result"
+      ;;
+    *)
+      mark_tun_last_action "on" "partial" "$verify_result"
+      mark_tun_last_verification "partial" "$verify_result"
+      ;;
+  esac
 
-  print_tun_container_gate_feedback "$container_mode" "$risk_reason"
   print_tun_on_feedback "$verify_result"
 }
 
@@ -3827,13 +3947,17 @@ tun_runtime_status_text() {
 
 doctor_tun_checks() {
   local env_type stack runtime_tun_status backend dns_listen_value
-  local runtime_tun_enabled runtime_tun_stack runtime_tun_auto_route
-  local effective_result route_dev primary_reason cap_rc
+  local runtime_tun_enabled runtime_tun_stack runtime_tun_auto_route runtime_tun_auto_redirect
+  local effective_result route_dev primary_reason cap_rc route_takeover
+  local process_cap_rc
+  local problem_lines recommendation_lines rc
+
+  trap 'rc=$?; tun_doctor_report_failure "doctor_tun_checks" "$rc" "$BASH_COMMAND"; trap - ERR; return "$rc"' ERR
 
   prepare
 
   echo
-  echo "😼 Tun 诊断"
+  echo "🐱 Tun 诊断"
   echo
 
   runtime_tun_status="$(tun_runtime_status_text)"
@@ -3844,25 +3968,47 @@ doctor_tun_checks() {
   runtime_tun_enabled="$(runtime_config_tun_enabled 2>/dev/null || echo false)"
   runtime_tun_stack="$(runtime_config_tun_stack 2>/dev/null || echo "")"
   runtime_tun_auto_route="$(runtime_config_tun_auto_route 2>/dev/null || echo false)"
+  runtime_tun_auto_redirect="$(runtime_config_tun_auto_redirect 2>/dev/null || echo false)"
   route_dev="$(default_route_dev 2>/dev/null || true)"
-  has_cap_net_admin >/dev/null 2>&1
-  cap_rc=$?
+  route_takeover="unknown"
+  if [ -n "${route_dev:-}" ]; then
+    if default_route_is_tun_like 2>/dev/null; then
+      route_takeover="yes"
+    else
+      route_takeover="no"
+    fi
+  fi
+  if has_cap_net_admin >/dev/null 2>&1; then
+    cap_rc=0
+  else
+    cap_rc=$?
+  fi
+  process_cap_rc=2
+  case "$backend" in
+    systemd|systemd-user)
+      tun_process_has_cap_net_admin "$backend" >/dev/null 2>&1
+      process_cap_rc=$?
+      ;;
+  esac
 
   echo "【总体结论】"
-  if [ "$cap_rc" -eq 1 ]; then
-    echo "🔴 当前环境缺少 CAP_NET_ADMIN 权限"
+  if [ "$process_cap_rc" -eq 0 ]; then
+    echo "🟢 mihomo 进程已检测到 CAP_NET_ADMIN；当前执行环境 capability 不作为主因"
+  elif [ "$cap_rc" -eq 1 ]; then
+    echo "🔴 当前执行环境未检测到 CAP_NET_ADMIN；root 不等于一定拥有 CAP_NET_ADMIN"
   elif can_manage_tun_safely; then
     echo "🟢 当前环境满足基础 Tun 开启条件"
   else
     echo "🔴 当前环境不满足基础 Tun 开启条件"
   fi
+  echo "🧪 Tun 是否生效要看 mihomo 进程实际拿到的网络管理能力，能力边界可能来自 systemd unit 或容器环境"
   echo "🧪 当前 Tun 状态：$runtime_tun_status"
-  echo "⚙️  Tun stack：$stack"
-  echo "⚙️  运行后端：$backend"
+  echo "🔧  Tun stack：$stack"
+  echo "🔧  运行后端：$backend"
   echo "🚀 当前内核：$(runtime_kernel_type 2>/dev/null || echo unknown)"
   echo "🧩 Tun 支持等级：$(tun_kernel_support_text 2>/dev/null || echo 未知)"
   echo "💻 环境类型：$env_type"
-  echo "🧭 容器裁决：$(tun_container_mode_text 2>/dev/null || echo 未知)"
+  echo "📜 容器裁决：$(tun_container_mode_text 2>/dev/null || echo 未知)"
   echo "💡 内核说明：$(tun_kernel_support_reason 2>/dev/null || echo 未知)"
 
   if [ "$(tun_container_mode 2>/dev/null || echo unknown)" = "container-risky" ]; then
@@ -3873,8 +4019,14 @@ doctor_tun_checks() {
   echo
 
   echo "【发现的问题】"
-  if tun_problem_lines | grep -q .; then
-    tun_problem_lines | sed 's/^/  /'
+  problem_lines="$(tun_problem_lines)" || {
+    rc=$?
+    tun_doctor_report_failure "tun_problem_lines" "$rc" "collect problem lines"
+    trap - ERR
+    return "$rc"
+  }
+  if [ -n "${problem_lines:-}" ]; then
+    printf '%s\n' "$problem_lines" | sed 's/^/  /'
   else
     echo "  🟢 未发现明显问题"
   fi
@@ -3882,10 +4034,12 @@ doctor_tun_checks() {
 
   echo "【关键证据】"
   if is_root_user; then
-    echo "  🟢 当前为 root 用户"
+    echo "  🟢 当前执行用户：root"
   else
-    echo "  ⚠️ 当前不是 root 用户"
+    echo "  🚨 当前执行用户：非 root"
   fi
+  echo "  🔧 运行后端：$backend"
+  echo "  💻 是否容器：$(tun_doctor_container_evidence_text "$env_type")"
 
   if tun_device_exists; then
     echo "  🟢 /dev/net/tun：存在"
@@ -3897,7 +4051,7 @@ doctor_tun_checks() {
     if tun_device_readable; then
       echo "  🟢 /dev/net/tun：可读写"
     else
-      echo "  ⚠️ /dev/net/tun：存在但不可正常读写"
+      echo "  🚨 /dev/net/tun：存在但不可正常读写"
     fi
   fi
 
@@ -3906,17 +4060,17 @@ doctor_tun_checks() {
       echo "  🟢 CAP_NET_ADMIN：已检测到"
       ;;
     2)
-      echo "  ⚠️ CAP_NET_ADMIN：无法精确判断（缺少 capsh）"
+      echo "  🚨 CAP_NET_ADMIN：无法精确判断（缺少 capsh）"
       ;;
     *)
-      echo "  ⚠️ CAP_NET_ADMIN：未检测到"
+      echo "  🚨 CAP_NET_ADMIN：未检测到"
       ;;
   esac
 
   if has_ip_command; then
     echo "  🟢 ip 命令：可用"
   else
-    echo "  ⚠️ ip 命令：缺失"
+    echo "  🚨 ip 命令：缺失"
   fi
 
   if runtime_config_exists; then
@@ -3924,54 +4078,420 @@ doctor_tun_checks() {
     if [ -n "${dns_listen_value:-}" ] && [ "$dns_listen_value" != "null" ]; then
       echo "  🟢 DNS 监听：$dns_listen_value"
     else
-      echo "  ⚠️ DNS 监听：未解析到"
+      echo "  🚨 DNS 监听：未解析到"
     fi
 
     echo "  🧩 runtime tun.enable：${runtime_tun_enabled:-false}"
     if [ -n "${runtime_tun_stack:-}" ] && [ "$runtime_tun_stack" != "null" ]; then
       echo "  🧩 runtime tun.stack：$runtime_tun_stack"
     fi
-    echo "  🧭 runtime tun.auto-route：${runtime_tun_auto_route:-false}"
+    echo "  📜 runtime tun.auto-route：${runtime_tun_auto_route:-false}"
+    echo "  📜 runtime tun.auto-redirect：${runtime_tun_auto_redirect:-false}"
+    if [ "${runtime_tun_auto_redirect:-false}" != "true" ] \
+      && [ "$env_type" = "host" ] \
+      && [ "$(runtime_kernel_type 2>/dev/null || echo mihomo)" = "mihomo" ]; then
+      echo "  💡 auto-redirect 建议：裸 TCP 透明接管超时时，设置 CLASH_TUN_AUTO_REDIRECT=true 后重新执行 clashctl tun on"
+    fi
   else
-    echo "  ⚠️ 运行时配置：不存在"
+    echo "  🚨 运行时配置：不存在"
   fi
 
   if [ -n "${route_dev:-}" ]; then
     echo "  🌐 默认路由设备：$route_dev"
+    case "$route_takeover" in
+      yes)
+        echo "  🟢 默认路由接管：看起来已接管（设备命中 tun/clash/mihomo 特征）"
+        ;;
+      no)
+        echo "  📜 主默认路由：仍指向 $route_dev（仅代表 main table；Linux Tun 可通过 policy routing / rule table 生效）"
+        ;;
+      *)
+        echo "  📜 主默认路由：未知"
+        ;;
+    esac
   else
-    echo "  ⚠️ 默认路由设备：未解析到"
+    echo "  🚨 默认路由设备：未解析到"
+    echo "  📜 主默认路由：未知"
   fi
+  echo "  🧪 Tun 状态文件：$runtime_tun_status"
+  echo "  📜 mihomo 进程能力：$(tun_process_capability_text "$backend")"
+  echo "  📜 unit capability：$(tun_unit_capability_text "$backend")"
+  tun_doctor_log_evidence
+  tun_doctor_policy_evidence
+  tun_doctor_ip_rule_evidence
+  tun_doctor_route_table_evidence
   echo
 
   echo "【生效验证】"
   if [ "$(tun_enabled 2>/dev/null || echo false)" = "true" ]; then
     effective_result="$(tun_effective_check 2>/dev/null || true)"
-    primary_reason="$(tun_doctor_primary_reason "$effective_result")"
+    primary_reason="$(tun_doctor_primary_reason "$effective_result" "$backend" "$route_takeover")" || {
+      rc=$?
+      tun_doctor_report_failure "tun_doctor_primary_reason" "$rc" "derive primary reason"
+      trap - ERR
+      return "$rc"
+    }
 
-    if [ "$effective_result" = "ok" ]; then
-      echo "  🟢 已生效"
-    else
-      tun_doctor_conclusion_line "$primary_reason" | sed 's/^/  /'
-    fi
+    tun_doctor_conclusion_line "$primary_reason" | sed 's/^/  /'
   else
-    primary_reason="$(tun_doctor_primary_reason "tun-disabled")"
+    primary_reason="$(tun_doctor_primary_reason "tun-disabled" "$backend" "$route_takeover")" || {
+      rc=$?
+      tun_doctor_report_failure "tun_doctor_primary_reason" "$rc" "derive primary reason"
+      trap - ERR
+      return "$rc"
+    }
     tun_doctor_conclusion_line "$primary_reason" | sed 's/^/  /'
   fi
   echo
 
   echo "【建议操作】"
-  tun_recommendation_lines "$primary_reason" | sed 's/^/  /'
+  recommendation_lines="$(tun_recommendation_lines "$primary_reason")" || {
+    rc=$?
+    tun_doctor_report_failure "tun_recommendation_lines" "$rc" "collect recommendation lines"
+    trap - ERR
+    return "$rc"
+  }
+  printf '%s\n' "$recommendation_lines" | sed 's/^/  /'
+  echo
+
+  trap - ERR
+}
+
+tun_doctor_report_failure() {
+  local function_name="$1"
+  local rc="$2"
+  local step="$3"
+
+  echo
+  ui_error "Tun doctor 中途失败：$function_name"
+  ui_kv "!" "失败步骤" "${step:-unknown}"
+  ui_kv "!" "返回码" "$rc"
+  ui_next "请带着上面的失败点重新排查或提交问题"
   echo
 }
 
+tun_doctor_container_evidence_text() {
+  case "${1:-unknown}" in
+    host)
+      echo "否（host）"
+      ;;
+    docker|container|lxc)
+      echo "是（$1）"
+      ;;
+    *)
+      echo "未知（${1:-unknown}）"
+      ;;
+  esac
+}
+
+tun_runtime_pid() {
+  local backend="${1:-unknown}"
+  local pid_file pid unit
+
+  unit="$(service_unit_name 2>/dev/null || echo clash-for-linux.service)"
+  case "$backend" in
+    systemd)
+      if command -v systemctl >/dev/null 2>&1; then
+        pid="$(systemctl show "$unit" --property MainPID --value 2>/dev/null || true)"
+        if [ -n "${pid:-}" ] && [ "$pid" != "0" ]; then
+          echo "$pid"
+          return 0
+        fi
+      fi
+      ;;
+    systemd-user)
+      if command -v systemctl >/dev/null 2>&1; then
+        pid="$(systemctl --user show "$unit" --property MainPID --value 2>/dev/null || true)"
+        if [ -n "${pid:-}" ] && [ "$pid" != "0" ]; then
+          echo "$pid"
+          return 0
+        fi
+      fi
+      ;;
+  esac
+
+  pid_file="$RUNTIME_DIR/mihomo.pid"
+  if [ -f "$pid_file" ]; then
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [ -n "${pid:-}" ]; then
+      echo "$pid"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+tun_process_capability_text() {
+  local backend="${1:-unknown}"
+  local pid cap_eff cap_value net_admin net_raw
+
+  pid="$(tun_runtime_pid "$backend" 2>/dev/null || true)"
+  if [ -z "${pid:-}" ] || [ ! -r "/proc/$pid/status" ]; then
+    echo "未读取到运行中 mihomo 进程能力"
+    return 0
+  fi
+
+  cap_eff="$(sed -nE 's/^CapEff:[[:space:]]*([0-9a-fA-F]+)$/\1/p' "/proc/$pid/status" 2>/dev/null | head -n 1)"
+  if [ -z "${cap_eff:-}" ]; then
+    echo "pid=$pid，未读取到 CapEff"
+    return 0
+  fi
+
+  cap_value=$((16#$cap_eff))
+  net_admin="no"
+  net_raw="no"
+  if [ $((cap_value & (1 << 12))) -ne 0 ]; then
+    net_admin="yes"
+  fi
+  if [ $((cap_value & (1 << 13))) -ne 0 ]; then
+    net_raw="yes"
+  fi
+
+  echo "pid=$pid，CapEff=$cap_eff，CAP_NET_ADMIN=$net_admin，CAP_NET_RAW=$net_raw"
+}
+
+tun_process_has_cap_net_admin() {
+  local backend="${1:-unknown}"
+  local pid cap_eff cap_value
+
+  pid="$(tun_runtime_pid "$backend" 2>/dev/null || true)"
+  [ -n "${pid:-}" ] && [ -r "/proc/$pid/status" ] || return 2
+
+  cap_eff="$(sed -nE 's/^CapEff:[[:space:]]*([0-9a-fA-F]+)$/\1/p' "/proc/$pid/status" 2>/dev/null | head -n 1)"
+  [ -n "${cap_eff:-}" ] || return 2
+
+  cap_value=$((16#$cap_eff))
+  if [ $((cap_value & (1 << 12))) -ne 0 ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+tun_log_tun_adapter_line() {
+  local log_file="$LOG_DIR/mihomo.out.log"
+  [ -f "$log_file" ] || return 1
+
+  grep -E '\[TUN\].*Tun adapter|Tun adapter listening' "$log_file" 2>/dev/null | tail -n 1
+}
+
+tun_log_tun_source_line() {
+  local log_file="$LOG_DIR/mihomo.out.log"
+  [ -f "$log_file" ] || return 1
+
+  grep -E '(^|[^0-9])28\.0\.0\.[0-9]+:[0-9]+.*-->' "$log_file" 2>/dev/null | tail -n 1
+}
+
+tun_log_has_tun_traffic_evidence() {
+  tun_log_tun_adapter_line >/dev/null 2>&1 || return 1
+  tun_log_tun_source_line >/dev/null 2>&1 || return 1
+}
+
+tun_policy_rule_line() {
+  has_ip_command 2>/dev/null || return 1
+  ip rule show 2>/dev/null \
+    | grep -E '(lookup 2022|iif Meta|not from all iif lo lookup 2022)' \
+    | head -n 1
+}
+
+tun_policy_route_line() {
+  has_ip_command 2>/dev/null || return 1
+  ip route show table all 2>/dev/null \
+    | grep -E '(^|[[:space:]])default .* dev (Meta|tun|utun|mihomo|clash)([[:space:]].*)? table 2022|table 2022 .*default .* dev (Meta|tun|utun|mihomo|clash)' \
+    | head -n 1
+}
+
+tun_has_policy_routing_evidence() {
+  tun_log_tun_adapter_line >/dev/null 2>&1 || return 1
+  tun_policy_rule_line >/dev/null 2>&1 || return 1
+  tun_policy_route_line >/dev/null 2>&1 || return 1
+}
+
+tun_doctor_ip_rule_evidence() {
+  if ! has_ip_command 2>/dev/null; then
+    echo "  🚨 ip rule：缺少 ip 命令，无法读取"
+    return 0
+  fi
+
+  echo "  📜 ip rule："
+  ip rule show 2>/dev/null | sed 's/^/    /' || echo "    读取失败"
+}
+
+tun_doctor_route_table_evidence() {
+  if ! has_ip_command 2>/dev/null; then
+    echo "  🚨 ip route table all：缺少 ip 命令，无法读取"
+    return 0
+  fi
+
+  echo "  📜 ip route show table all："
+  ip route show table all 2>/dev/null | sed -n '1,80p' | sed 's/^/    /' || echo "    读取失败"
+}
+
+tun_doctor_log_evidence() {
+  local adapter_line traffic_line
+
+  adapter_line="$(tun_log_tun_adapter_line 2>/dev/null || true)"
+  traffic_line="$(tun_log_tun_source_line 2>/dev/null || true)"
+
+  if [ -n "${adapter_line:-}" ]; then
+    echo "  🟢 Tun adapter 日志：$adapter_line"
+  else
+    echo "  🚨 Tun adapter 日志：未在 mihomo.out.log 中找到"
+  fi
+
+  if [ -n "${traffic_line:-}" ]; then
+    echo "  🟢 Tun 流量日志：$traffic_line"
+  else
+    echo "  🚨 Tun 流量日志：未发现 28.0.0.x Tun 源地址流量"
+  fi
+}
+
+tun_doctor_policy_evidence() {
+  local rule_line route_line
+
+  rule_line="$(tun_policy_rule_line 2>/dev/null || true)"
+  route_line="$(tun_policy_route_line 2>/dev/null || true)"
+
+  if [ -n "${rule_line:-}" ]; then
+    echo "  🟢 Tun policy rule：$rule_line"
+  else
+    echo "  🚨 Tun policy rule：未发现 lookup 2022 / iif Meta 相关规则"
+  fi
+
+  if [ -n "${route_line:-}" ]; then
+    echo "  🟢 Tun policy route：$route_line"
+  else
+    echo "  🚨 Tun policy route：未发现 table 2022 默认路由指向 Meta/tun 设备"
+  fi
+}
+
+tun_unit_capability_text() {
+  local backend="${1:-unknown}"
+  local unit unit_file content
+
+  unit="$(service_unit_name 2>/dev/null || echo clash-for-linux.service)"
+  case "$backend" in
+    systemd)
+      if command -v systemctl >/dev/null 2>&1; then
+        content="$(systemctl cat "$unit" 2>/dev/null || true)"
+      fi
+      unit_file="/etc/systemd/system/$unit"
+      ;;
+    systemd-user)
+      if command -v systemctl >/dev/null 2>&1; then
+        content="$(systemctl --user cat "$unit" 2>/dev/null || true)"
+      fi
+      unit_file="$HOME/.config/systemd/user/$unit"
+      ;;
+    *)
+      echo "非 systemd 后端，不适用 unit capability 声明"
+      return 0
+      ;;
+  esac
+
+  if [ -z "${content:-}" ] && [ -f "$unit_file" ]; then
+    content="$(cat "$unit_file" 2>/dev/null || true)"
+  fi
+
+  if [ -z "${content:-}" ]; then
+    echo "未读取到 unit 内容，无法判断是否显式声明 capability"
+    return 0
+  fi
+
+  if printf '%s\n' "$content" | grep -Eq '^(AmbientCapabilities|CapabilityBoundingSet)=.*CAP_NET_(ADMIN|RAW)'; then
+    printf '%s\n' "$content" \
+      | grep -E '^(AmbientCapabilities|CapabilityBoundingSet)=' \
+      | tr '\n' ';' \
+      | sed 's/;$//;s/^/已显式声明：/'
+    return 0
+  fi
+
+  if printf '%s\n' "$content" | grep -Eq '^(AmbientCapabilities|CapabilityBoundingSet)='; then
+    printf '%s\n' "$content" \
+      | grep -E '^(AmbientCapabilities|CapabilityBoundingSet)=' \
+      | tr '\n' ';' \
+      | sed 's/;$//;s/^/已声明 capability，但未看到 CAP_NET_ADMIN 或 CAP_NET_RAW：/'
+    return 0
+  fi
+
+  echo "未看到 AmbientCapabilities/CapabilityBoundingSet 显式声明"
+}
+
 tun_doctor_primary_reason() {
-  local effective_result cap_rc
+  local effective_result backend route_takeover cap_rc process_cap_rc
 
   effective_result="${1:-unknown}"
+  backend="${2:-unknown}"
+  route_takeover="${3:-unknown}"
 
-  has_cap_net_admin >/dev/null 2>&1
-  cap_rc=$?
-  if [ "$cap_rc" -eq 1 ]; then
+  process_cap_rc=2
+  case "$backend" in
+    systemd|systemd-user)
+      tun_process_has_cap_net_admin "$backend" >/dev/null 2>&1
+      process_cap_rc=$?
+      ;;
+  esac
+
+  if tun_has_policy_routing_evidence 2>/dev/null; then
+    case "$effective_result" in
+      ok)
+        echo "ok"
+        return 0
+        ;;
+      disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+        ;;
+      *)
+        echo "policy-routing-likely-effective"
+        return 0
+        ;;
+    esac
+  fi
+
+  if [ "$process_cap_rc" -eq 0 ]; then
+    case "$effective_result" in
+      ok)
+        echo "ok"
+        return 0
+        ;;
+      disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+        ;;
+      host-ip-unavailable|current-ip-unavailable|traffic-same-as-host)
+        if [ "$route_takeover" = "no" ]; then
+          echo "main-route-unchanged-needs-policy-check"
+          return 0
+        fi
+        ;;
+      *)
+        if [ "$route_takeover" = "no" ]; then
+          echo "main-route-unchanged-needs-policy-check"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+
+  if tun_log_has_tun_traffic_evidence 2>/dev/null; then
+    case "$effective_result" in
+      ok)
+        echo "ok"
+        return 0
+        ;;
+      disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+        ;;
+      *)
+        echo "main-route-unchanged-needs-policy-check"
+        return 0
+        ;;
+    esac
+  fi
+
+  if has_cap_net_admin >/dev/null 2>&1; then
+    cap_rc=0
+  else
+    cap_rc=$?
+  fi
+  if [ "$cap_rc" -eq 1 ] && [ "$process_cap_rc" -ne 0 ]; then
     echo "missing-cap-net-admin"
     return 0
   fi
@@ -3991,11 +4511,26 @@ tun_doctor_primary_reason() {
     return 0
   fi
 
+  if [ "$route_takeover" = "no" ]; then
+    case "$effective_result" in
+      ok|disabled-in-state|disabled-in-runtime-config|tun-disabled|runtime-not-running|controller-unreachable)
+        ;;
+      *)
+        echo "main-route-unchanged-needs-policy-check"
+        return 0
+        ;;
+    esac
+  fi
+
   case "$effective_result" in
-    controller-unreachable|runtime-not-running|disabled-in-state|disabled-in-runtime-config|tun-disabled|host-ip-unavailable|current-ip-unavailable|traffic-same-as-host)
+    controller-unreachable|runtime-not-running|disabled-in-state|disabled-in-runtime-config|tun-disabled|host-ip-unavailable|current-ip-unavailable|traffic-same-as-host|default-route-not-tun|main-route-unchanged-needs-policy-check)
       echo "$effective_result"
       ;;
     *)
+      if [ "$route_takeover" = "no" ]; then
+        echo "main-route-unchanged-needs-policy-check"
+        return 0
+      fi
       echo "traffic-check-failed"
       ;;
   esac
@@ -4003,8 +4538,22 @@ tun_doctor_primary_reason() {
 
 tun_doctor_conclusion_line() {
   case "${1:-traffic-check-failed}" in
+    ok)
+      if tun_has_policy_routing_evidence 2>/dev/null; then
+        echo "🟢 最终状态：已生效（Tun + policy routing + 主动流量验证通过）"
+      else
+        echo "🟢 最终状态：已生效（主动流量验证通过）"
+      fi
+      ;;
+    policy-routing-likely-effective)
+      if tun_log_tun_source_line >/dev/null 2>&1; then
+        echo "🟢 最终状态：已生效（Tun + policy routing 已安装，并观察到 Tun 源地址流量）"
+      else
+        echo "🟡 最终状态：很可能已生效（Tun + policy routing 已安装；主动流量验证不足 / 未观察到明确 Tun 源地址日志）"
+      fi
+      ;;
     missing-cap-net-admin)
-      echo "🔴 Tun 未生效：缺少 CAP_NET_ADMIN 权限"
+      echo "🔴 Tun 未生效：当前能力检测未通过（CAP_NET_ADMIN）"
       ;;
     missing-tun-device)
       echo "🔴 Tun 未生效：缺少 /dev/net/tun"
@@ -4031,10 +4580,21 @@ tun_doctor_conclusion_line() {
       echo "🔴 Tun 未生效：无法完成公网出口验证"
       ;;
     traffic-same-as-host)
-      echo "🔴 Tun 未生效：流量出口仍是本机公网 IP"
+      if tun_log_has_tun_traffic_evidence 2>/dev/null; then
+        echo "🟡 流量出口验证仍与本机公网 IP 一致，但已看到 Tun adapter 与 Tun 源地址流量；需进一步确认是否为策略路由/部分生效"
+      else
+        echo "🟡 主动流量验证不足 / 未观察到明确 Tun 源地址日志；需结合 policy routing 证据确认"
+      fi
+      ;;
+    default-route-not-tun|main-route-unchanged-needs-policy-check)
+      if tun_log_has_tun_traffic_evidence 2>/dev/null; then
+        echo "🟡 主默认路由仍指向物理网卡，但已看到 Tun adapter 与 Tun 源地址流量；需进一步确认是否为策略路由/部分生效"
+      else
+        echo "🟡 主默认路由仍指向物理网卡；需结合 ip rule / table all / 日志确认是否为策略路由或部分生效"
+      fi
       ;;
     *)
-      echo "🔴 Tun 未生效：流量验证未通过"
+      echo "🟡 主动流量验证不足 / 未观察到明确 Tun 源地址日志；需结合 policy routing 证据确认"
       ;;
   esac
 }
@@ -4050,18 +4610,18 @@ tun_doctor_action_lines() {
     missing-cap-net-admin)
       case "$backend" in
         systemd)
-          echo "👉 当前运行后端为 systemd，请为服务添加 CAP_NET_ADMIN："
+          echo "👉 当前运行后端为 systemd；若关键证据显示 unit 未声明能力，可尝试为服务显式补 CAP_NET_ADMIN / CAP_NET_RAW："
           echo "   sudo systemctl edit $unit"
           ;;
         systemd-user)
-          echo "👉 当前运行后端为 systemd-user，请改用 systemd 系统服务或为用户服务补齐 CAP_NET_ADMIN"
+          echo "👉 当前运行后端为 systemd-user；请结合容器与 unit 证据判断，必要时改用系统服务或显式补 CAP_NET_ADMIN / CAP_NET_RAW"
           ;;
         script)
-          echo "👉 当前运行后端为 script，请使用具备 CAP_NET_ADMIN 的环境运行："
+          echo "👉 当前运行后端为 script；请确认启动 mihomo 的实际进程具备 CAP_NET_ADMIN / CAP_NET_RAW："
           echo "   sudo clashctl tun on"
           ;;
         *)
-          echo "👉 请为当前运行环境补齐 CAP_NET_ADMIN 权限"
+          echo "👉 请结合运行后端、容器环境和进程能力证据，确认 mihomo 实际拥有 CAP_NET_ADMIN / CAP_NET_RAW"
           ;;
       esac
       ;;
@@ -4090,7 +4650,21 @@ tun_doctor_action_lines() {
       echo "👉 请先确认服务器可访问 https://ip.sb：curl https://ip.sb"
       ;;
     traffic-same-as-host)
-      echo "👉 当前流量仍走本机出口，请检查 Tun 路由规则和内核日志：clashctl logs"
+      if tun_log_has_tun_traffic_evidence 2>/dev/null; then
+        echo "👉 已看到 Tun 流量证据，但公网出口验证仍未通过；请结合 ip rule、ip route show table all 和内核日志判断是否为策略路由/部分生效"
+      else
+        echo "👉 当前流量仍走本机出口，请检查 Tun 路由规则和内核日志：clashctl logs"
+      fi
+      ;;
+    default-route-not-tun|main-route-unchanged-needs-policy-check)
+      echo "👉 主默认路由仍指向物理网卡；请结合 ip rule、ip route show table all 和 Tun 流量日志确认是否为策略路由/部分生效"
+      ;;
+    policy-routing-likely-effective)
+      if tun_log_tun_source_line >/dev/null 2>&1; then
+        echo "👉 已看到 Tun policy routing 与 Tun 源地址流量；如仍有访问异常，请重点检查分流规则和内核日志：clashctl logs"
+      else
+        echo "👉 Tun policy routing 已安装；主动流量验证不足，建议发起一次直连外网访问后重新执行：clashctl tun doctor"
+      fi
       ;;
     *)
       echo "👉 请查看运行日志定位流量验证失败原因：clashctl logs"
@@ -4102,17 +4676,27 @@ tun_recommendation_lines() {
   local enabled env_type can_enable container_mode risk_reason
   local effective_result disable_result
   local config_tun_enabled auto_route
-  local kernel_support
+  local kernel_support backend route_takeover route_dev
   local primary_reason
 
   primary_reason="${1:-}"
   kernel_support="$(tun_kernel_support_level 2>/dev/null || echo unknown)"
+  backend="$(runtime_backend 2>/dev/null || echo unknown)"
   enabled="$(tun_enabled 2>/dev/null || echo false)"
   env_type="$(container_env_type 2>/dev/null || echo unknown)"
   container_mode="$(tun_container_mode 2>/dev/null || echo unknown)"
   risk_reason="$(tun_container_risk_reason 2>/dev/null || true)"
   config_tun_enabled="$(runtime_config_tun_enabled 2>/dev/null || echo false)"
   auto_route="$(runtime_config_tun_auto_route 2>/dev/null || echo false)"
+  route_dev="$(default_route_dev 2>/dev/null || true)"
+  route_takeover="unknown"
+  if [ -n "${route_dev:-}" ]; then
+    if default_route_is_tun_like 2>/dev/null; then
+      route_takeover="yes"
+    else
+      route_takeover="no"
+    fi
+  fi
 
   can_enable="false"
   if can_manage_tun_safely 2>/dev/null; then
@@ -4134,7 +4718,7 @@ tun_recommendation_lines() {
   if [ "$enabled" = "true" ]; then
     effective_result="$(tun_effective_check 2>/dev/null || true)"
     [ -n "${effective_result:-}" ] || effective_result="unknown"
-    [ -n "${primary_reason:-}" ] || primary_reason="$(tun_doctor_primary_reason "$effective_result")"
+    [ -n "${primary_reason:-}" ] || primary_reason="$(tun_doctor_primary_reason "$effective_result" "$backend" "$route_takeover")"
 
     if [ "$effective_result" != "ok" ]; then
       tun_doctor_action_lines "$primary_reason"
@@ -4273,7 +4857,17 @@ tun_problem_lines() {
   if [ "$enabled" = "true" ]; then
     effective_result="$(tun_effective_check 2>/dev/null || true)"
     if [ "$effective_result" != "ok" ]; then
-      echo "• Tun 未生效"
+      if tun_has_policy_routing_evidence 2>/dev/null; then
+        if tun_log_tun_source_line >/dev/null 2>&1; then
+          echo "• Tun + policy routing 已安装，并观察到 Tun 源地址流量；主动出口验证仍需结合场景确认"
+        else
+          echo "• Tun + policy routing 已安装；主动流量验证不足 / 未观察到明确 Tun 源地址日志"
+        fi
+      elif tun_log_has_tun_traffic_evidence 2>/dev/null; then
+        echo "• 已看到 Tun adapter 与 Tun 源地址流量；需结合 policy routing 证据确认覆盖范围"
+      else
+        echo "• 主动流量验证不足 / 未观察到明确 Tun 源地址日志"
+      fi
     fi
   else
     disable_result="$(tun_disable_check 2>/dev/null || true)"
@@ -4299,7 +4893,7 @@ cmd_tun() {
       ;;
     *)
       ui_title "🧪 Tun 模式管理"
-      echo "🧭 用法："
+      echo "📜 用法："
       echo "  clashctl tun"
       echo "  clashctl tun status"
       echo "  clashctl tun on"
@@ -4411,8 +5005,10 @@ cmd_add() {
   sub_fmt="$(detect_subscription_format "$sub_url")"
 
   set_subscription "$sub_url" "$sub_fmt" "$sub_name"
+  set_active_subscription "$sub_name"
   apply_runtime_change_after_config_mutation
   print_add_feedback "$sub_name" "$sub_url"
+  cmd_ls
 }
 
 cmd_use() {
@@ -4429,7 +5025,7 @@ cmd_use() {
       if [ -z "${recommended:-}" ]; then
         if [ -n "${active:-}" ]; then
           ui_title "🟢 当前无更优推荐，保持当前"
-          ui_kv "📡" "当前主订阅" "$active"
+          ui_kv "🚩" "当前主订阅" "$active"
           ui_next "clashctl select  选择节点"
           ui_blank
           return 0
@@ -4515,7 +5111,7 @@ use_subscription_interactive() {
   [ "$count" -gt 0 ] || die "当前没有任何订阅"
 
   echo
-  echo "😼 请选择订阅"
+  echo "🐱 请选择订阅"
   echo
 
   if [ -n "${active:-}" ] && subscription_exists "$active"; then
@@ -4557,12 +5153,12 @@ health_overview_lines() {
     active_health="$(subscription_health_status "$active" 2>/dev/null || echo "unknown")"
     active_fail="$(subscription_fail_count "$active" 2>/dev/null || echo "0")"
 
-    echo "📡 当前主订阅：$active"
+    echo "🚩 当前主订阅：$active"
     echo "❤️ 当前健康状态：$active_health"
-    echo "⚠️ 当前失败次数：$active_fail"
-    echo "⚙️ 当前启用状态：$active_enabled"
+    echo "🚨 当前失败次数：$active_fail"
+    echo "🔧 当前启用状态：$active_enabled"
   else
-    echo "📡 当前主订阅：未设置"
+    echo "🚩 当前主订阅：未设置"
   fi
 
   if [ -n "${recommended:-}" ] && [ "${recommended:-}" != "${active:-}" ]; then
@@ -4805,7 +5401,7 @@ proxy_pick_index() {
   local input
 
   while true; do
-    printf "> "
+    printf "> " >&2
     IFS= read -r input || return 1
 
     case "${input:-}" in
@@ -4819,34 +5415,69 @@ proxy_pick_index() {
       return 0
     fi
 
-    echo "⚠️ 请输入 1-$count 之间的编号，或输入 q 退出"
+    echo "🚨 请输入 1-$count 之间的编号，或输入 q 退出" >&2
   done
 }
 
 proxy_pick_group_interactive() {
   local idx count group current
-  local -a groups
+  local -a groups ordered_groups
 
   while IFS= read -r group; do
     [ -n "${group:-}" ] || continue
     groups+=("$group")
   done < <(proxy_group_list)
 
+  for group in "节点选择" "自动选择"; do
+    if printf '%s\n' "${groups[@]}" | grep -Fxq "$group"; then
+      ordered_groups+=("$group")
+    fi
+  done
+
+  for group in "${groups[@]}"; do
+    case "$group" in
+      节点选择|自动选择)
+        continue
+        ;;
+    esac
+    ordered_groups+=("$group")
+  done
+
+  groups=("${ordered_groups[@]}")
+
   count="${#groups[@]}"
   [ "$count" -gt 0 ] || die "📭 暂无可切换策略组"
 
-  echo "📦 请选择策略组："
+  echo "📦 请选择策略组：" >&2
+  echo "💡 通常优先选择：节点选择" >&2
   idx=1
   for group in "${groups[@]}"; do
     current="$(proxy_group_current "$group" 2>/dev/null || echo "-")"
-    printf '  %s) 📦 %s  ->  🚀 %s\n' "$idx" "$group" "$current"
+    printf '  %s) 📦 %s  ->  🚀 %s\n' "$idx" "$group" "$current" >&2
     idx=$((idx + 1))
   done
-  echo "  q) 退出"
-  echo
+  echo "  q) 退出" >&2
+  echo >&2
 
   idx="$(proxy_pick_index "$count")" || return 1
   echo "${groups[$((idx - 1))]}"
+}
+
+select_total_node_count() {
+  local file="$RUNTIME_DIR/config.yaml"
+  local node_count
+
+  [ -s "$file" ] || return 1
+  [ -x "$(yq_bin)" ] || return 1
+
+  node_count="$("$(yq_bin)" eval '(.proxies // []) | length' "$file" 2>/dev/null | head -n 1 || true)"
+  case "${node_count:-}" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+
+  echo "$node_count"
 }
 
 cmd_sub() {
@@ -4871,7 +5502,7 @@ cmd_sub() {
       ;;
     enable)
       shift || true
-      [ -n "${1:-}" ] || die "🧭 用法：clashctl sub enable <名称>"
+      [ -n "${1:-}" ] || die "📜 用法：clashctl sub enable <名称>"
       enable_subscription "$1"
       regenerate_config
       apply_runtime_change_after_config_mutation
@@ -4879,7 +5510,7 @@ cmd_sub() {
       ;;
     disable)
       shift || true
-      [ -n "${1:-}" ] || die "🧭 用法：clashctl sub disable <名称>"
+      [ -n "${1:-}" ] || die "📜 用法：clashctl sub disable <名称>"
       disable_subscription "$1"
       regenerate_config
       apply_runtime_change_after_config_mutation
@@ -4887,8 +5518,8 @@ cmd_sub() {
       ;;
     rename)
       shift || true
-      [ -n "${1:-}" ] || die "🧭 用法：clashctl sub rename <旧名称> <新名称>"
-      [ -n "${2:-}" ] || die "🧭 用法：clashctl sub rename <旧名称> <新名称>"
+      [ -n "${1:-}" ] || die "📜 用法：clashctl sub rename <旧名称> <新名称>"
+      [ -n "${2:-}" ] || die "📜 用法：clashctl sub rename <旧名称> <新名称>"
       rename_subscription "$1" "$2"
       regenerate_config
       apply_runtime_change_after_config_mutation
@@ -4896,7 +5527,7 @@ cmd_sub() {
       ;;
     remove|rm|del)
       shift || true
-      [ -n "${1:-}" ] || die "🧭 用法：clashctl sub remove <名称>"
+      [ -n "${1:-}" ] || die "📜 用法：clashctl sub remove <名称>"
       remove_subscription "$1"
       regenerate_config
       apply_runtime_change_after_config_mutation
@@ -4908,7 +5539,7 @@ cmd_sub() {
       ;;
     "")
       ui_title "📡 订阅高级管理"
-      echo "🧭 用法："
+      echo "📜 用法："
       echo "  clashctl sub list"
       echo "  clashctl sub use <名称>"
       echo "  clashctl sub enable <名称>"
@@ -4918,7 +5549,8 @@ cmd_sub() {
       echo "  clashctl sub health [名称]"
       echo
       echo "🧩 说明："
-      echo "  add / use / ls / health 属于主路径"
+      echo "  add / use / ls 属于主路径"
+      echo "  health 保留为多订阅健康审计"
       echo "  sub 仅用于高级维护操作"
       echo
       echo "💡 常用动作："
@@ -4937,7 +5569,7 @@ cmd_sub() {
 
 proxy_select_interactive() {
   local group="${1:-}"
-  local current idx count node selected_node
+  local current idx count total_count node selected_node
   local -a nodes
 
   prepare
@@ -4964,10 +5596,14 @@ proxy_select_interactive() {
 
   count="${#nodes[@]}"
   [ "$count" -gt 0 ] || die "📭 当前策略组没有候选节点：$group"
+  total_count="$(select_total_node_count 2>/dev/null || true)"
 
   echo
   echo "📦 当前策略组：$group"
   [ -n "${current:-}" ] && echo "🚀 当前节点：$current"
+  echo "📦 当前策略组候选数：$count"
+  [ -n "${total_count:-}" ] && echo "🔢 全部节点总数：$total_count"
+  echo "ℹ️ 以下仅显示当前策略组可切换节点"
   echo
   echo "🚀 请选择节点："
 
@@ -5062,7 +5698,7 @@ cmd_update() {
   if [ "$regenerate_mode" = "true" ]; then
     ui_kv "🧩" "配置状态" "已重新生成"
   else
-    ui_kv "⚠️" "配置状态" "未自动重新生成"
+    ui_kv "🚨" "配置状态" "未自动重新生成"
   fi
   ui_next "clashctl status"
   ui_blank

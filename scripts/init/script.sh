@@ -130,6 +130,31 @@ service_restart() {
   esac
 }
 
+service_is_running() {
+  local backend pid
+  backend="$(runtime_backend)"
+
+  case "$backend" in
+    systemd)
+      systemctl is-active --quiet "$(service_unit_name)"
+      ;;
+    systemd-user)
+      systemctl --user is-active --quiet "$(service_unit_name)"
+      ;;
+    script)
+      if [ -f "$RUNTIME_DIR/mihomo.pid" ]; then
+        pid="$(cat "$RUNTIME_DIR/mihomo.pid" 2>/dev/null || true)"
+        [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null
+      else
+        return 1
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 service_status_text() {
   local backend
   backend="$(runtime_backend)"
@@ -177,7 +202,7 @@ wait_install_runtime_ready() {
   local controller_ready="false"
 
   while [ "$i" -lt "$max_try" ]; do
-    if status_is_running 2>/dev/null; then
+    if service_is_running 2>/dev/null; then
       runtime_ready="true"
     fi
 
@@ -221,7 +246,14 @@ post_install_verify() {
   fi
 
   if [ "$has_subscription" = "true" ]; then
-    service_start >/dev/null 2>&1 || true
+    if service_is_running 2>/dev/null; then
+      service_restart >/dev/null 2>&1 || {
+        service_stop >/dev/null 2>&1 || true
+        service_start >/dev/null 2>&1 || true
+      }
+    else
+      service_start >/dev/null 2>&1 || true
+    fi
     wait_install_runtime_ready 4
   else
     write_runtime_value "INSTALL_VERIFY_RUNTIME_READY" "false"

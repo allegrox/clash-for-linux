@@ -150,12 +150,12 @@ print_proxy_show() {
   status="$(system_proxy_status)"
 
   echo
-  echo "😼 当前代理环境"
+  echo "🐱 当前代理环境"
   echo
   echo "🌐 HTTP：$(proxy_http_url)"
   echo "🧦 SOCKS5：$(proxy_socks_url)"
   echo "🚫 NO_PROXY：$(proxy_no_proxy_value)"
-  echo "🧭 系统代理：${status}（$(system_proxy_env_file)）"
+  echo "📜 系统代理：${status}（$(system_proxy_env_file)）"
   echo
 }
 

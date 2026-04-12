@@ -243,28 +243,23 @@ resolve_subconverter() {
   extract_dir="$tmp_dir/extract"
 
   download_file "$url" "$tmp_file" "subconverter"
-  info "subconverter 下载文件：$tmp_file"
 
   package_type="$(detect_subconverter_package_type "$tmp_file")"
-  info "subconverter 下载文件类型：$package_type"
 
   rm -rf "$target_dir"
   mkdir -p "$target_dir" "$extract_dir"
 
   case "$package_type" in
     tar.gz)
-      info "subconverter 解压目录：$extract_dir"
       tar -xzf "$tmp_file" -C "$extract_dir"
       found_bin="$(find_subconverter_binary "$extract_dir" 2>/dev/null || true)"
       ;;
     zip)
       command -v unzip >/dev/null 2>&1 || die "解压 subconverter zip 失败：系统缺少 unzip"
-      info "subconverter 解压目录：$extract_dir"
       unzip -oq "$tmp_file" -d "$extract_dir"
       found_bin="$(find_subconverter_binary "$extract_dir" 2>/dev/null || true)"
       ;;
     binary)
-      info "subconverter 解压目录：无需解压"
       found_bin="$tmp_file"
       ;;
     *)
@@ -280,10 +275,8 @@ resolve_subconverter() {
     die "解压后未找到 subconverter 文件"
   }
 
-  info "subconverter 实际文件：$found_bin"
   cp -f "$found_bin" "$target_bin"
   chmod +x "$target_bin"
-  info "subconverter 最终落盘：$target_bin"
 
   [ -x "$target_bin" ] || {
     rm -rf "$tmp_dir"

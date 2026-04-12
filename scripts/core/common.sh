@@ -93,7 +93,7 @@ ui_info() {
 }
 
 ui_warn() {
-  printf '⚠️ %s\n' "$*"
+  printf '🚨 %s\n' "$*"
 }
 
 ui_error() {
@@ -763,9 +763,15 @@ download_candidate_probe() {
 download_candidate_fetch() {
   local url="$1"
   local out="$2"
+  local asset_name="${3:-}"
+  local progress_arg="--progress-bar"
+
+  if [ "$asset_name" = "subscription" ]; then
+    progress_arg="--silent"
+  fi
 
   curl_download \
-    --progress-bar \
+    "$progress_arg" \
     --show-error \
     --fail \
     --location \
@@ -795,7 +801,7 @@ download_file() {
   if ! github_url_is_mirrorable "$url"; then
     ui_download "正在下载：${asset_name}"
 
-    if download_candidate_fetch "$url" "$fetch_tmp"; then
+    if download_candidate_fetch "$url" "$fetch_tmp" "$asset_name"; then
       mv -f "$fetch_tmp" "$out"
       download_cache_store "$url" "$out" "$url"
       return 0
@@ -845,7 +851,7 @@ download_file() {
         ui_download "正在下载：${asset_name} [${label}]"
       fi
 
-      if download_candidate_fetch "$candidate_url" "$fetch_tmp"; then
+      if download_candidate_fetch "$candidate_url" "$fetch_tmp" "$asset_name"; then
         mv -f "$fetch_tmp" "$out"
         download_cache_store "$url" "$out" "$candidate_url"
         record_download_mirror_success "$label" "$candidate_url"
@@ -881,9 +887,15 @@ download_http_fetch_to_file() {
   local ua="${3:-}"
   local connect_timeout="${4:-10}"
   local max_time="${5:-300}"
+  local asset_name="${6:-}"
+  local progress_arg="--progress-bar"
+
+  if [ "$asset_name" = "subscription" ]; then
+    progress_arg="--silent"
+  fi
 
   curl_download \
-    --progress-bar \
+    "$progress_arg" \
     --show-error \
     --fail \
     --location \
@@ -922,7 +934,7 @@ download_text_file() {
   fi
 
   ui_download "正在下载：${asset_name}"
-  if download_http_fetch_to_file "$url" "$fetch_tmp" "$ua" "$connect_timeout" "$max_time"; then
+  if download_http_fetch_to_file "$url" "$fetch_tmp" "$ua" "$connect_timeout" "$max_time" "$asset_name"; then
     mv -f "$fetch_tmp" "$out"
     download_cache_store "$url" "$out" "$url"
     return 0
@@ -1636,6 +1648,14 @@ runtime_config_tun_auto_route() {
   [ -s "$file" ] || return 1
 
   "$(yq_bin)" eval '.tun."auto-route" // false' "$file" 2>/dev/null | head -n 1
+}
+
+runtime_config_tun_auto_redirect() {
+  local file
+  file="$(runtime_config_file)"
+  [ -s "$file" ] || return 1
+
+  "$(yq_bin)" eval '.tun."auto-redirect" // false' "$file" 2>/dev/null | head -n 1
 }
 
 runtime_config_tun_auto_detect_interface() {
@@ -2578,7 +2598,7 @@ install_runtime_brief_line() {
       ;;
     verifying)
       echo "🟡 当前状态：verifying"
-      echo "🧭 正在确认运行状态，可继续观察或手动启动"
+      echo "📜 正在确认运行状态，可继续观察或手动启动"
       if [ -n "${mixed_port:-}" ]; then
         echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
       fi
@@ -2597,8 +2617,68 @@ install_runtime_brief_line() {
 
 print_install_summary() {
   local clashctl_file
+  local kernel_text project_path arch_text install_actor install_scope_text
+  local env_mode env_mode_text backend_text subscription_text node_count runtime_file
 
   clashctl_file="$(clashctl_source)"
+  kernel_text="$(runtime_kernel_type 2>/dev/null || echo "unknown")"
+  project_path="${PROJECT_DIR:-unknown}"
+  arch_text="$(install_env_arch 2>/dev/null || true)"
+  [ -n "${arch_text:-}" ] || arch_text="$(get_arch 2>/dev/null || echo "unknown")"
+
+  if [ "$(install_env_is_root 2>/dev/null || echo false)" = "true" ]; then
+    install_actor="root"
+  else
+    install_actor="user"
+  fi
+
+  install_scope_text="$(install_env_scope 2>/dev/null || true)"
+  [ -n "${install_scope_text:-}" ] || install_scope_text="${INSTALL_SCOPE:-unknown}"
+
+  env_mode="$(install_env_container 2>/dev/null || true)"
+  [ -n "${env_mode:-}" ] || env_mode="$(container_env_type 2>/dev/null || echo "unknown")"
+  case "${env_mode:-unknown}" in
+    host)
+      env_mode_text="主机"
+      ;;
+    container|docker|lxc)
+      env_mode_text="容器"
+      ;;
+    *)
+      env_mode_text="${env_mode:-unknown}"
+      ;;
+  esac
+
+  backend_text="$(install_plan_backend 2>/dev/null || true)"
+  [ -n "${backend_text:-}" ] || backend_text="$(runtime_backend 2>/dev/null || echo "unknown")"
+
+  if install_has_subscription 2>/dev/null; then
+    subscription_text="已配置"
+  else
+    subscription_text="未配置"
+  fi
+
+  runtime_file="$(runtime_config_file)"
+  if [ -s "$runtime_file" ]; then
+    node_count="$("$(yq_bin)" eval '(.proxies // []) | length' "$runtime_file" 2>/dev/null | head -n 1)"
+    case "${node_count:-}" in
+      ''|*[!0-9]*)
+        node_count=""
+        ;;
+    esac
+  fi
+
+  echo
+  echo "🎉 安装完成"
+  echo
+  echo "🚀 当前内核：$kernel_text"
+  echo "🧬 系统架构：$arch_text"
+  echo "💻 环境模式：${env_mode_text:-unknown}"
+  echo "📁 安装路径：$project_path"
+  echo "👤 安装方式：${install_actor} / ${install_scope_text:-unknown}"
+  echo "🔧 运行后端：${backend_text:-unknown}"
+  echo "📦 订阅：$subscription_text"
+  [ -n "${node_count:-}" ] && echo "🔢 节点数量：$node_count"
 
   if [ -f "$clashctl_file" ]; then
     CLASH_UI_BOX_ONLY=1 bash "$clashctl_file" ui || true

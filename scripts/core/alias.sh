@@ -142,7 +142,7 @@ _clash_alias_after_on() {
   _clash_alias_proxy_show
 
   if [ "${CLASH_WRAPPER_EXEC:-0}" = "1" ]; then
-    echo "⚠️ 当前通过独立命令执行，Shell 变量不会自动回写到父终端"
+    echo "🚨 当前通过独立命令执行，Shell 变量不会自动回写到父终端"
     echo "💡 如需当前终端立即生效，请重新打开终端或 source shell 入口后执行 clashon"
   fi
 
@@ -178,12 +178,12 @@ _clash_alias_run_on() {
 
   if [ "$on_rc" -ne 0 ]; then
     if _clash_alias_export_system_proxy; then
-      echo "⚠️ clashctl on 返回非 0，但系统代理已写入，继续同步当前 Shell（底层返回码：$on_rc）" >&2
+      echo "🚨 clashctl on 返回非 0，但系统代理已写入，继续同步当前 Shell（底层返回码：$on_rc）" >&2
       if [ -s "$on_output" ]; then
         sed 's/^/  /' "$on_output" >&2
       fi
     elif _clash_alias_proxy_on; then
-      echo "⚠️ clashctl on 返回非 0，已通过 proxy on 继续同步当前 Shell（底层返回码：$on_rc）" >&2
+      echo "🚨 clashctl on 返回非 0，已通过 proxy on 继续同步当前 Shell（底层返回码：$on_rc）" >&2
       if [ -s "$on_output" ]; then
         sed 's/^/  /' "$on_output" >&2
       fi
@@ -304,7 +304,7 @@ clashproxy() {
       clashctl proxy select "$@"
       ;;
     *)
-      echo "🧭 用法：clashproxy [show|on|off|groups|current|nodes|select]"
+      echo "📜 用法：clashproxy [show|on|off|groups|current|nodes|select]"
       echo "💡 主路径切节点请使用：clashselect 或 clashctl select"
       return 2
       ;;
