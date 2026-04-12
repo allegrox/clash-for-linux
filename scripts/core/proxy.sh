@@ -176,11 +176,19 @@ controller_secret() {
 }
 
 controller_api_base() {
-  local addr
+  local addr host port
 
   addr="$(controller_addr)"
   [ -n "${addr:-}" ] || die "未找到 external-controller"
   [ "$addr" != "null" ] || die "未找到 external-controller"
+
+  host="${addr%:*}"
+  port="${addr##*:}"
+  case "$host" in
+    0.0.0.0)
+      addr="127.0.0.1:${port}"
+      ;;
+  esac
 
   echo "http://$addr"
 }

@@ -9,6 +9,33 @@ _clashctl_real() {
   command clashctl "$@"
 }
 
+_clashctl_real_on() {
+  local project_dir clashctl_script
+
+  project_dir="$(_clash_alias_project_dir)"
+  clashctl_script="$project_dir/scripts/core/clashctl.sh"
+
+  if [ -f "$clashctl_script" ]; then
+    bash "$clashctl_script" on "$@"
+    return $?
+  fi
+
+  _clashctl_real on "$@"
+}
+
+_clashctl_real_on_target() {
+  local project_dir clashctl_script
+
+  project_dir="$(_clash_alias_project_dir)"
+  clashctl_script="$project_dir/scripts/core/clashctl.sh"
+
+  if [ -f "$clashctl_script" ]; then
+    echo "bash $clashctl_script on"
+  else
+    echo "_clashctl_real on"
+  fi
+}
+
 _clash_alias_project_dir() {
   local self_dir
   self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -46,6 +73,7 @@ _clash_alias_print_sep() {
 
 _clash_alias_proxy_on() {
   _clashctl_real proxy on >/dev/null || return $?
+  _clash_alias_export_system_proxy || return $?
 }
 
 _clash_alias_proxy_off() {
@@ -54,6 +82,34 @@ _clash_alias_proxy_off() {
 
 _clash_alias_proxy_show() {
   _clashctl_real proxy show 2>/dev/null || true
+}
+
+_clash_alias_export_system_proxy() {
+  local proxy_file http_url https_url all_url no_proxy
+
+  proxy_file="${SYSTEM_PROXY_ENV_FILE:-/etc/environment}"
+  [ -f "$proxy_file" ] || return 1
+  grep -Fq "# >>> clash-for-linux system proxy >>>" "$proxy_file" 2>/dev/null || return 1
+
+  http_url="$(sed -nE 's/^http_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  https_url="$(sed -nE 's/^https_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  all_url="$(sed -nE 's/^all_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  no_proxy="$(sed -nE 's/^NO_PROXY="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+  [ -n "${no_proxy:-}" ] || no_proxy="$(sed -nE 's/^no_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
+
+  [ -n "${http_url:-}" ] || return 1
+  [ -n "${https_url:-}" ] || https_url="$http_url"
+  [ -n "${all_url:-}" ] || all_url="${http_url/http:\/\//socks5://}"
+  [ -n "${no_proxy:-}" ] || no_proxy="127.0.0.1,localhost,::1"
+
+  export http_proxy="$http_url"
+  export https_proxy="$https_url"
+  export HTTP_PROXY="$http_url"
+  export HTTPS_PROXY="$https_url"
+  export all_proxy="$all_url"
+  export ALL_PROXY="$all_url"
+  export no_proxy="$no_proxy"
+  export NO_PROXY="$no_proxy"
 }
 
 _clash_alias_unset_shell_proxy() {
@@ -75,69 +131,94 @@ _clash_alias_prepare_on() {
 
 _clash_alias_after_on() {
   _clash_alias_set_persist_enabled "true"
-  _clash_alias_proxy_on || return $?
+  _clash_alias_export_system_proxy || return $?
 
   _clash_alias_print_sep
+  if [ "${CLASH_WRAPPER_EXEC:-0}" = "1" ]; then
+    echo "✅ 系统代理已开启"
+  else
+    echo "✅ 当前 Shell 代理环境已同步"
+  fi
   _clash_alias_proxy_show
 
   if [ "${CLASH_WRAPPER_EXEC:-0}" = "1" ]; then
     echo "⚠️ 当前通过独立命令执行，Shell 变量不会自动回写到父终端"
-    echo '💡 请在当前终端执行：eval "$(clashctl proxy on)"'
+    echo "💡 如需当前终端立即生效，请重新打开终端或 source shell 入口后执行 clashon"
   fi
 
   echo "👉 下一步：$(_clash_alias_status_next)"
 }
 
-_clash_alias_after_off() {
-  _clash_alias_set_persist_enabled "false"
-  _clash_alias_print_sep
-  echo "🧹 系统代理已关闭"
-}
-
 _clash_alias_run_on() {
+  local on_output on_rc had_errexit
+
   _clash_alias_prepare_on || return $?
 
-  _clashctl_real on "$@" || return $?
+  echo "🟢 正在开启代理..."
 
-  _clash_alias_after_on || return $?
+  on_output="$(mktemp "${TMPDIR:-/tmp}/clashon.XXXXXX")" || {
+    echo "🔴 开启代理失败：无法创建临时输出文件" >&2
+    return 1
+  }
+
+  had_errexit="false"
+  case "$-" in
+    *e*)
+      had_errexit="true"
+      set +e
+      ;;
+  esac
+
+  CLASH_ALIAS_CALL=1 _clashctl_real_on "$@" >"$on_output" 2>&1
+  on_rc=$?
+
+  if [ "$had_errexit" = "true" ]; then
+    set -e
+  fi
+
+  if [ "$on_rc" -ne 0 ]; then
+    if _clash_alias_export_system_proxy; then
+      echo "⚠️ clashctl on 返回非 0，但系统代理已写入，继续同步当前 Shell（底层返回码：$on_rc）" >&2
+      if [ -s "$on_output" ]; then
+        sed 's/^/  /' "$on_output" >&2
+      fi
+    elif _clash_alias_proxy_on; then
+      echo "⚠️ clashctl on 返回非 0，已通过 proxy on 继续同步当前 Shell（底层返回码：$on_rc）" >&2
+      if [ -s "$on_output" ]; then
+        sed 's/^/  /' "$on_output" >&2
+      fi
+    else
+      echo "🔴 开启代理失败（底层返回码：$on_rc）" >&2
+      if [ -s "$on_output" ]; then
+        sed 's/^/  /' "$on_output" >&2
+      else
+        echo "  底层命令没有输出错误详情：$(_clashctl_real_on_target)" >&2
+      fi
+      rm -f "$on_output" 2>/dev/null || true
+      return "$on_rc"
+    fi
+  else
+    cat "$on_output"
+  fi
+
+  rm -f "$on_output" 2>/dev/null || true
+
+  _clash_alias_after_on || {
+    on_rc=$?
+    echo "🔴 开启代理失败：当前 Shell 代理环境同步失败（返回码：$on_rc）" >&2
+    return "$on_rc"
+  }
 }
 
 _clash_alias_run_off() {
   _clash_alias_unset_shell_proxy
-  _clash_alias_proxy_off
   _clash_alias_set_persist_enabled "false"
   _clashctl_real off "$@" || return $?
-  _clash_alias_after_off
 }
 
 _clash_alias_auto_restore_proxy() {
-  local proxy_file http_url https_url all_url no_proxy
-
   _clash_alias_persist_enabled || return 0
-
-  proxy_file="${SYSTEM_PROXY_ENV_FILE:-/etc/environment}"
-  [ -f "$proxy_file" ] || return 0
-  grep -Fq "# >>> clash-for-linux system proxy >>>" "$proxy_file" 2>/dev/null || return 0
-
-  http_url="$(sed -nE 's/^http_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
-  https_url="$(sed -nE 's/^https_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
-  all_url="$(sed -nE 's/^all_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
-  no_proxy="$(sed -nE 's/^NO_PROXY="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
-  [ -n "${no_proxy:-}" ] || no_proxy="$(sed -nE 's/^no_proxy="?([^"\r\n]+)"?$/\1/p' "$proxy_file" | tail -n 1)"
-
-  [ -n "${http_url:-}" ] || return 0
-  [ -n "${https_url:-}" ] || https_url="$http_url"
-  [ -n "${all_url:-}" ] || all_url="${http_url/http:\/\//socks5://}"
-  [ -n "${no_proxy:-}" ] || no_proxy="127.0.0.1,localhost,::1"
-
-  export http_proxy="$http_url"
-  export https_proxy="$https_url"
-  export HTTP_PROXY="$http_url"
-  export HTTPS_PROXY="$https_url"
-  export all_proxy="$all_url"
-  export ALL_PROXY="$all_url"
-  export no_proxy="$no_proxy"
-  export NO_PROXY="$no_proxy"
+  _clash_alias_export_system_proxy || return 0
 
   echo "♻️ 已恢复当前 shell 代理环境（来自持久化状态）"
   return 0

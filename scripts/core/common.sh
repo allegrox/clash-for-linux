@@ -109,7 +109,7 @@ ui_download() {
 }
 
 ui_target() {
-  ui_color "#fd79a8" "🎯 $*"
+  ui_color "#fd79a8" "🎯 $*" >&2
 }
 
 ui_kv() {
@@ -1517,10 +1517,13 @@ runtime_config_file() {
 
 runtime_config_mixed_port() {
   local file
+  local port
   file="$(runtime_config_file)"
   [ -s "$file" ] || return 1
 
-  "$(yq_bin)" eval '.["mixed-port"] // .port // ""' "$file" 2>/dev/null | head -n 1
+  port="$("$(yq_bin)" eval '.["mixed-port"] // .port // ""' "$file" 2>/dev/null | head -n 1)"
+  runtime_port_value_is_valid "$port" || return 1
+  echo "$port"
 }
 
 runtime_config_controller_addr() {
@@ -1533,11 +1536,33 @@ runtime_config_controller_addr() {
 
 runtime_config_controller_port() {
   local addr
+  local port
   addr="$(runtime_config_controller_addr 2>/dev/null || true)"
   [ -n "${addr:-}" ] || return 1
   [ "$addr" != "null" ] || return 1
 
-  echo "${addr##*:}"
+  port="${addr##*:}"
+  runtime_port_value_is_valid "$port" || return 1
+  echo "$port"
+}
+
+runtime_port_value_is_valid() {
+  local port="${1:-}"
+
+  printf '%s' "$port" | grep -Eq '^[0-9]+$' || return 1
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+}
+
+runtime_controller_value_is_valid() {
+  local controller="${1:-}"
+  local port
+
+  [ -n "${controller:-}" ] || return 1
+  [ "$controller" != "null" ] || return 1
+  printf '%s' "$controller" | grep -Eq '^[^[:space:][:cntrl:]]+:[0-9]+$' || return 1
+
+  port="${controller##*:}"
+  runtime_port_value_is_valid "$port"
 }
 
 display_controller_local_addr() {
@@ -1550,6 +1575,8 @@ display_controller_local_addr() {
 
   host="${controller%:*}"
   port="${controller##*:}"
+  printf '%s' "$host" | grep -Eq '^[^[:space:][:cntrl:]]+$' || return 1
+  runtime_port_value_is_valid "$port" || return 1
 
   if [ "$host" = "0.0.0.0" ]; then
     host="127.0.0.1"
@@ -1568,11 +1595,14 @@ runtime_config_dns_listen() {
 
 runtime_config_dns_port() {
   local listen
+  local port
   listen="$(runtime_config_dns_listen 2>/dev/null || true)"
   [ -n "${listen:-}" ] || return 1
   [ "$listen" != "null" ] || return 1
 
-  echo "${listen##*:}"
+  port="${listen##*:}"
+  runtime_port_value_is_valid "$port" || return 1
+  echo "$port"
 }
 
 mark_runtime_port_repair_result() {
@@ -2533,11 +2563,15 @@ install_runtime_brief_line() {
   [ -n "${controller:-}" ] || controller="$(read_env_value "EXTERNAL_CONTROLLER" 2>/dev/null || echo "127.0.0.1:9090")"
   controller_display="$(display_controller_local_addr "$controller" 2>/dev/null || true)"
 
+  if ! runtime_port_value_is_valid "$mixed_port" || [ -z "${controller_display:-}" ]; then
+    status_text="broken"
+  fi
+
   case "$status_text" in
     ready)
       echo "🟢 当前状态：ready"
       echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
-      echo "🖥️ 控制台：http://${controller_display:-$controller}/ui"
+      echo "💻 控制台：http://${controller_display:-$controller}/ui"
       ;;
     stopped)
       echo "🔴 当前状态：stopped"
@@ -2549,7 +2583,7 @@ install_runtime_brief_line() {
         echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
       fi
       if [ -n "${controller:-}" ]; then
-        echo "🖥️ 控制台：http://${controller_display:-$controller}/ui"
+        echo "💻 控制台：http://${controller_display:-$controller}/ui"
       fi
       ;;
     broken)
@@ -2562,59 +2596,11 @@ install_runtime_brief_line() {
 }
 
 print_install_summary() {
-  local backend mixed_port controller controller_display
-  local has_subscription final_state next_action
+  local clashctl_file
 
-  backend="$(install_plan_backend 2>/dev/null || true)"
-  [ -n "${backend:-}" ] || backend="$(runtime_backend 2>/dev/null || true)"
+  clashctl_file="$(clashctl_source)"
 
-  mixed_port="$(install_plan_mixed_port 2>/dev/null || true)"
-  [ -n "${mixed_port:-}" ] || mixed_port="$(read_env_value "MIXED_PORT" 2>/dev/null || echo "7890")"
-
-  controller="$(install_plan_controller 2>/dev/null || true)"
-  [ -n "${controller:-}" ] || controller="$(read_env_value "EXTERNAL_CONTROLLER" 2>/dev/null || echo "127.0.0.1:9090")"
-  controller_display="$(display_controller_local_addr "$controller" 2>/dev/null || true)"
-
-  if install_has_subscription; then
-    has_subscription="true"
-  else
-    has_subscription="false"
+  if [ -f "$clashctl_file" ]; then
+    CLASH_UI_BOX_ONLY=1 bash "$clashctl_file" ui || true
   fi
-
-  final_state="$(install_status_text)"
-  next_action="$(install_default_next_action)"
-
-  echo
-  echo "😼 安装完成"
-  echo
-  echo "🧩 运行后端：${backend:-unknown}"
-  echo "📡 订阅：$( [ "${has_subscription:-false}" = "true" ] && echo "已配置" || echo "未配置" )"
-
-  case "$final_state" in
-    ready)
-      echo "🚦 当前状态：🟢 ready"
-      echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
-      echo "🖥️ 控制台：http://${controller_display:-$controller}/ui"
-      ;;
-    stopped)
-      echo "🚦 当前状态：⚪ stopped"
-      ;;
-    verifying)
-      if [ -n "${mixed_port:-}" ]; then
-        echo "🌐 本地代理：http://127.0.0.1:${mixed_port}"
-      fi
-      if [ -n "${controller:-}" ]; then
-        echo "🖥️ 控制台：http://${controller_display:-$controller}/ui"
-      fi
-      ;;
-    broken)
-      echo "🚦 当前状态：🔴 broken"
-      ;;
-    *)
-      echo "🚦 当前状态：⚪ unknown"
-      ;;
-  esac
-
-  echo "👉 下一步：${next_action}"
-  echo
 }

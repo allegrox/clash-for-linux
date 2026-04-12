@@ -438,7 +438,7 @@ normalize_runtime_config() {
   [ -s "$file" ] || die "待规范化的配置文件不存在：$file"
 
   resolved_ports="$(resolve_runtime_ports)"
-  eval "$resolved_ports"
+  load_resolved_runtime_ports "$resolved_ports"
 
   mixed_port="$MIXED_PORT_RESOLVED"
   controller="$EXTERNAL_CONTROLLER_RESOLVED"
@@ -472,6 +472,7 @@ normalize_runtime_config() {
 
     .dns.enable = (.dns.enable // true) |
     .dns["enhanced-mode"] = (.dns["enhanced-mode"] // "fake-ip") |
+    .dns.ipv6 = false |
     .dns.listen = env(dns_listen_value) |
 
     .proxies = (.proxies // []) |
@@ -482,11 +483,11 @@ normalize_runtime_config() {
 
 generate_secure_secret() {
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 24 2>/dev/null | head -n 1
+    openssl rand -hex 8 2>/dev/null | head -n 1
     return 0
   fi
 
-  head -c 32 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n'
+  head -c 8 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n'
 }
 
 is_valid_controller_secret() {
@@ -1367,33 +1368,42 @@ csv_append_value() {
 
 current_runtime_mixed_port() {
   local file="${1:-$RUNTIME_DIR/config.yaml}"
+  local port
 
   [ -s "$file" ] || return 1
-  "$(yq_bin)" eval '.["mixed-port"] // .port // ""' "$file" 2>/dev/null | head -n 1
+  port="$("$(yq_bin)" eval '.["mixed-port"] // .port // ""' "$file" 2>/dev/null | head -n 1)"
+  is_valid_port_number "$port" || return 1
+  echo "$port"
 }
 
 current_runtime_controller_port() {
   local file="${1:-$RUNTIME_DIR/config.yaml}"
   local addr
+  local port
 
   [ -s "$file" ] || return 1
   addr="$("$(yq_bin)" eval '.["external-controller"] // ""' "$file" 2>/dev/null | head -n 1)"
   [ -n "${addr:-}" ] || return 1
   [ "$addr" != "null" ] || return 1
 
-  echo "${addr##*:}"
+  port="${addr##*:}"
+  is_valid_port_number "$port" || return 1
+  echo "$port"
 }
 
 current_runtime_dns_port() {
   local file="${1:-$RUNTIME_DIR/config.yaml}"
   local listen
+  local port
 
   [ -s "$file" ] || return 1
   listen="$("$(yq_bin)" eval '.dns.listen // ""' "$file" 2>/dev/null | head -n 1)"
   [ -n "${listen:-}" ] || return 1
   [ "$listen" != "null" ] || return 1
 
-  echo "${listen##*:}"
+  port="${listen##*:}"
+  is_valid_port_number "$port" || return 1
+  echo "$port"
 }
 
 port_reserved_by_current_runtime() {
@@ -1463,10 +1473,6 @@ resolve_runtime_port() {
 
   resolved="$(resolve_free_port_excluding "$start" "$end" "$excludes_csv")"
 
-  if [ "$resolved" != "$preferred" ]; then
-    ui_target "端口冲突：[${label}] ${preferred} 🎲 随机分配：${resolved}"
-  fi
-
   echo "$resolved"
 }
 
@@ -1492,6 +1498,43 @@ parse_controller_port() {
   echo "$port"
 }
 
+is_clean_controller_addr() {
+  local controller="$1"
+  local port
+
+  [ -n "${controller:-}" ] || return 1
+  [ "$controller" != "null" ] || return 1
+  printf '%s' "$controller" | grep -Eq '^[^[:space:][:cntrl:]]+:[0-9]+$' || return 1
+
+  port="${controller##*:}"
+  is_valid_port_number "$port"
+}
+
+load_resolved_runtime_ports() {
+  local resolved="$1"
+  local unexpected_lines
+  local mixed controller dns
+
+  unexpected_lines="$(
+    printf '%s\n' "$resolved" \
+      | grep -Ev '^(MIXED_PORT_RESOLVED=[0-9]+|EXTERNAL_CONTROLLER_RESOLVED=[^[:space:][:cntrl:]]+:[0-9]+|CLASH_DNS_PORT_RESOLVED=[0-9]+)$' \
+      | grep -v '^$' || true
+  )"
+  [ -z "${unexpected_lines:-}" ] || die "runtime port resolution output is polluted"
+
+  mixed="$(printf '%s\n' "$resolved" | sed -n 's/^MIXED_PORT_RESOLVED=//p' | head -n 1)"
+  controller="$(printf '%s\n' "$resolved" | sed -n 's/^EXTERNAL_CONTROLLER_RESOLVED=//p' | head -n 1)"
+  dns="$(printf '%s\n' "$resolved" | sed -n 's/^CLASH_DNS_PORT_RESOLVED=//p' | head -n 1)"
+
+  is_valid_port_number "$mixed" || die "invalid MIXED_PORT_RESOLVED: $mixed"
+  is_clean_controller_addr "$controller" || die "invalid EXTERNAL_CONTROLLER_RESOLVED: $controller"
+  is_valid_port_number "$dns" || die "invalid CLASH_DNS_PORT_RESOLVED: $dns"
+
+  MIXED_PORT_RESOLVED="$mixed"
+  EXTERNAL_CONTROLLER_RESOLVED="$controller"
+  CLASH_DNS_PORT_RESOLVED="$dns"
+}
+
 resolve_runtime_ports() {
   local preferred_mixed preferred_controller preferred_dns
   local controller_host preferred_controller_port
@@ -1509,12 +1552,15 @@ resolve_runtime_ports() {
   preferred_controller_port="$(parse_controller_port "$preferred_controller")"
 
   mixed_port="$(resolve_runtime_port "$preferred_mixed" 7890 7999 "$used_ports" "mixed-port")"
+  is_valid_port_number "$mixed_port" || die "invalid mixed-port resolution: $mixed_port"
   used_ports="$(csv_append_value "$used_ports" "$mixed_port")"
 
   controller_port="$(resolve_runtime_port "$preferred_controller_port" 9090 9199 "$used_ports" "external-controller")"
+  is_valid_port_number "$controller_port" || die "invalid external-controller resolution: $controller_port"
   used_ports="$(csv_append_value "$used_ports" "$controller_port")"
 
   dns_port="$(resolve_runtime_port "$preferred_dns" 1053 1199 "$used_ports" "dns.listen")"
+  is_valid_port_number "$dns_port" || die "invalid dns.listen resolution: $dns_port"
   used_ports="$(csv_append_value "$used_ports" "$dns_port")"
 
   printf 'MIXED_PORT_RESOLVED=%s\n' "$mixed_port"
@@ -1528,7 +1574,7 @@ mark_install_port_plan() {
   local changed_mixed changed_controller changed_dns
 
   resolved="$(resolve_runtime_ports)"
-  eval "$resolved"
+  load_resolved_runtime_ports "$resolved"
 
   preferred_mixed="${MIXED_PORT:-7890}"
   preferred_controller="${EXTERNAL_CONTROLLER:-0.0.0.0:9090}"
@@ -1661,13 +1707,14 @@ show_subscription() {
 
 bootstrap_subscription_from_install_input() {
   local url="$1"
-  local fmt="${2:-convert}"
+  local fmt="${2:-}"
   local name="${3:-default}"
   local file
 
   [ -n "${url:-}" ] || return 1
 
   subscription_url_is_supported "$url" || die "订阅地址格式不合法"
+  [ -n "${fmt:-}" ] || fmt="$(detect_subscription_format "$url")"
 
   case "$fmt" in
     clash|convert) ;;
@@ -1733,32 +1780,54 @@ subscription_name_has_url() {
 }
 
 ensure_subscription_bootstrap_for_install() {
-  local env_url active_name
+  local env_url active_name input_fmt current_url current_fmt
 
   env_url="${CLASH_SUBSCRIPTION_URL:-}"
   active_name="${1:-default}"
 
-  [ -n "${env_url:-}" ] || return 0
-
   ensure_subscriptions_file
 
-  # 只在“当前完全没有订阅”时，才允许用 .env 初始化
+  # Only initialize from .env when there is no subscription yet.
   if subscriptions_has_any_usable_source; then
+    current_url="$(subscription_url_by_name "$active_name" 2>/dev/null || true)"
+    current_fmt="$(subscription_format_by_name "$active_name" 2>/dev/null || true)"
+
+    if [ -n "${current_url:-}" ]; then
+      input_fmt="$(detect_subscription_format "$current_url")"
+      if [ "$current_fmt" = "convert" ] && [ "$input_fmt" = "clash" ]; then
+        info "安装订阅格式判定：$active_name -> $input_fmt"
+        bootstrap_subscription_from_install_input "$current_url" "$input_fmt" "$active_name"
+      fi
+
+      return 0
+    fi
+
+    if [ -n "${env_url:-}" ]; then
+      input_fmt="$(detect_subscription_format "$env_url")"
+      info "安装订阅格式判定：$active_name -> $input_fmt"
+      bootstrap_subscription_from_install_input "$env_url" "$input_fmt" "$active_name"
+    fi
+
     return 0
   fi
 
-  bootstrap_subscription_from_install_input "$env_url" "convert" "$active_name"
+  [ -n "${env_url:-}" ] || return 0
+
+  input_fmt="$(detect_subscription_format "$env_url")"
+  info "安装订阅格式判定：$active_name -> $input_fmt"
+  bootstrap_subscription_from_install_input "$env_url" "$input_fmt" "$active_name"
 }
 
 set_subscription() {
   local url="$1"
-  local fmt="${2:-convert}"
+  local fmt="${2:-}"
   local name="${3:-default}"
   local file
 
   [ -n "$url" ] || die "订阅地址不能为空"
 
   subscription_url_is_supported "$url" || die "订阅地址格式不合法"
+  [ -n "${fmt:-}" ] || fmt="$(detect_subscription_format "$url")"
 
   case "$fmt" in
     clash|convert) ;;
@@ -2219,33 +2288,44 @@ calculate_runtime_risk_level() {
   echo "low"
 }
 
+print_subscription_table_header() {
+  local show_index="${1:-false}"
+
+  if [ "$show_index" = "true" ]; then
+    echo "  编号 名称             类型     URL"
+  else
+    echo "  名称             类型     URL"
+  fi
+}
+
 print_subscription_pick_line() {
   local index="$1"
   local name="$2"
-  local active enabled_text health_text fail_count type_text marker
+  local _url_mode="${3:-full}"
+  local show_index="${4:-true}"
+  local active type_text marker url_text
 
   [ -n "${name:-}" ] || return 0
 
   active="$(active_subscription_name 2>/dev/null || true)"
 
   if [ "$name" = "$active" ]; then
-    marker="[当前]"
+    marker="$(printf '\033[32m*\033[0m')"
   else
-    marker=""
+    marker=" "
   fi
 
-  if subscription_enabled "$name"; then
-    enabled_text="enabled"
-  else
-    enabled_text="disabled"
-  fi
-
-  health_text="$(subscription_health_status "$name" 2>/dev/null || echo "unknown")"
-  fail_count="$(subscription_fail_count "$name" 2>/dev/null || echo "0")"
   type_text="$(subscription_format_by_name "$name" 2>/dev/null || echo "clash")"
+  url_text="$(subscription_url_by_name "$name" 2>/dev/null || true)"
+  [ -n "${url_text:-}" ] || url_text="-"
 
-  printf '  %-2s) %-16s %-8s %-9s %-8s fail=%-3s %s\n' \
-    "$index" "$name" "$type_text" "$enabled_text" "$health_text" "$fail_count" "$marker"
+  if [ "$show_index" = "true" ]; then
+    printf '%b %-2s) %-16s %-8s %s\n' \
+      "$marker" "$index" "$name" "$type_text" "$url_text"
+  else
+    printf '%b %-16s %-8s %s\n' \
+      "$marker" "$name" "$type_text" "$url_text"
+  fi
 }
 
 print_subscription_summary_line() {
@@ -2287,16 +2367,17 @@ print_subscription_summary_line() {
 }
 
 list_subscriptions() {
-  local file name found="false"
+  local file name found="false" idx=1
 
   file="$(subscriptions_file)"
   ensure_subscriptions_file
 
-  echo "  名称             类型     启用状态   健康状态   失败次数"
+  print_subscription_table_header "false"
   while IFS= read -r name; do
     [ -n "${name:-}" ] || continue
     found="true"
-    print_subscription_summary_line "$name"
+    print_subscription_pick_line "$idx" "$name" "full" "false"
+    idx=$((idx + 1))
   done < <("$(yq_bin)" eval '.sources | keys | .[]' "$file" 2>/dev/null)
 
   [ "$found" = "true" ] || echo "  暂无订阅"
@@ -2310,49 +2391,6 @@ enable_subscription() {
 disable_subscription() {
   local name="$1"
   set_subscription_enabled "$name" "false"
-}
-
-list_subscriptions_verbose() {
-  local file active name enabled fmt url
-
-  file="$(subscriptions_file)"
-  ensure_subscriptions_file
-
-  active="$(active_subscription_name)"
-
-  while IFS= read -r name; do
-    [ -n "${name:-}" ] || continue
-
-    enabled="$("$(yq_bin)" eval ".sources.${name}.enabled // false" "$file" 2>/dev/null)"
-    fmt="$("$(yq_bin)" eval ".sources.${name}.type // \"clash\"" "$file" 2>/dev/null)"
-    url="$("$(yq_bin)" eval ".sources.${name}.url // \"\"" "$file" 2>/dev/null)"
-
-    if [ "$name" = "$active" ]; then
-      echo "* $name"
-    else
-      echo "  $name"
-    fi
-
-    echo "    enabled       : $enabled"
-    echo "    type          : $fmt"
-    echo "    health        : $(subscription_health_status "$name" 2>/dev/null || echo "unknown")"
-    echo "    fail_count    : $(subscription_fail_count "$name" 2>/dev/null || echo "0")"
-    echo "    auto_disabled : $(if subscription_auto_disabled "$name"; then echo true; else echo false; fi)"
-
-    if [ -n "$(subscription_last_success "$name" 2>/dev/null || true)" ]; then
-      echo "    last_success  : $(subscription_last_success "$name" 2>/dev/null || true)"
-    fi
-
-    if [ -n "$(subscription_last_failure "$name" 2>/dev/null || true)" ]; then
-      echo "    last_failure  : $(subscription_last_failure "$name" 2>/dev/null || true)"
-    fi
-
-    if [ -n "$(subscription_last_error "$name" 2>/dev/null || true)" ]; then
-      echo "    last_error    : $(subscription_last_error "$name" 2>/dev/null || true)"
-    fi
-
-    [ -n "${url:-}" ] && echo "    url           : $url"
-  done < <("$(yq_bin)" eval '.sources | keys | .[]' "$file")
 }
 
 subscription_list_overview_lines() {
@@ -2379,28 +2417,7 @@ subscription_list_overview_lines() {
 }
 
 subscription_list_recommendation_lines() {
-  local active recommended
-
-  active="$(active_subscription_name 2>/dev/null || true)"
-  recommended="$(recommended_subscription_name 2>/dev/null || true)"
-
-  if [ -n "${active:-}" ] && ! active_subscription_enabled 2>/dev/null; then
-    echo "👉 clashctl use"
-    echo "👉 clashctl health"
-    echo "👉 clashctl ls --verbose"
-    return 0
-  fi
-
-  if [ -n "${recommended:-}" ] && [ "${recommended:-}" != "${active:-}" ]; then
-    echo "👉 clashctl use ${recommended}"
-    echo "👉 clashctl health ${recommended}"
-    echo "👉 clashctl ls --verbose"
-    return 0
-  fi
-
-  echo "👉 clashctl use"
-  echo "👉 clashctl health"
-  echo "👉 clashctl ls --verbose"
+  echo "👉 clashctl use  切换当前使用的订阅"
 }
 
 detect_subscription_format() {
@@ -2494,28 +2511,70 @@ subconverter_running() {
 }
 
 start_subconverter() {
-  local home bin log_file
+  local home bin log_file pid_file pid i old_pwd exit_status
 
   home="$(subconverter_home)"
   bin="$(subconverter_bin)"
   log_file="$(subconverter_log_file)"
+  pid_file="$(subconverter_pid_file)"
+  exit_status="unknown"
 
-  [ -x "$bin" ] || die "subconverter 未安装：$bin"
+  [ -f "$bin" ] || die "subconverter 未安装：$bin"
+  if [ ! -x "$bin" ]; then
+    chmod +x "$bin" 2>/dev/null || die "subconverter 无法修正执行权限：$bin"
+  fi
+  [ -x "$bin" ] || die "subconverter 文件不可执行：$bin"
   mkdir -p "$LOG_DIR"
 
   if subconverter_running; then
-    return 0
+    if is_port_in_use "$(subconverter_port)"; then
+      return 0
+    fi
+    warn "检测到旧 subconverter 进程存在但端口未监听，正在重启"
+    stop_subconverter || true
   fi
 
-  (
-    cd "$home"
-    nohup "$bin" > "$log_file" 2>&1 &
-    echo $! > "$(subconverter_pid_file)"
-  )
+  old_pwd="$(pwd)"
+  rm -f "$pid_file" 2>/dev/null || true
+  cd "$home" || die "subconverter 工作目录不可用：$home"
+  nohup "$bin" > "$log_file" 2>&1 &
+  pid=$!
+  cd "$old_pwd" || true
+  echo "$pid" > "$pid_file"
 
-  sleep 1
+  for i in 1 2 3 4 5; do
+    if subconverter_running && is_port_in_use "$(subconverter_port)"; then
+      return 0
+    fi
+    sleep 1
+  done
 
-  subconverter_running || die "subconverter 启动失败"
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [ -n "${pid:-}" ] && ! kill -0 "$pid" 2>/dev/null; then
+    if wait "$pid" 2>/dev/null; then
+      exit_status="0"
+    else
+      exit_status="$?"
+    fi
+  fi
+  {
+    error "subconverter 启动失败"
+    warn "启动命令：cd \"$home\" && \"$bin\""
+    warn "监听端口：$(subconverter_port)"
+    warn "pid 文件：$pid_file"
+    warn "pid：${pid:-unknown}"
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      warn "进程状态：仍在运行，但未监听预期端口"
+    else
+      warn "进程状态：已退出或未成功启动"
+      warn "退出状态：$exit_status"
+    fi
+    warn "日志文件：$log_file"
+    if [ -f "$log_file" ]; then
+      tail -n 20 "$log_file" 2>/dev/null | sed 's/^/  /' >&2 || true
+    fi
+  } >&2
+  return 1
 }
 
 stop_subconverter() {
@@ -2702,7 +2761,9 @@ convert_subscription_via_subconverter() {
   local url="$1"
   local out_file="$2"
   local fetch_reason="${3:-auto}"
-  local api tmp_file
+  local convert_reason="${4:-subscription-type-convert}"
+  local api tmp_file curl_error_file
+  local curl_meta curl_rc http_code effective_url errexit_was_set
   local log_file
   local validate_ok="false"
 
@@ -2735,17 +2796,64 @@ convert_subscription_via_subconverter() {
   api="$(subconverter_url)/sub"
   log_file="$(subconverter_log_file)"
   tmp_file="$(mktemp)"
+  curl_error_file="$(mktemp)"
   rm -f "$tmp_file" 2>/dev/null || true
 
   info "正在通过 subconverter 转换订阅"
+  case "$convert_reason" in
+    direct-clash-invalid)
+      info "转换原因：直连订阅已下载，但不是可直接运行的 Clash YAML"
+      ;;
+    subscription-type-convert)
+      info "转换原因：订阅类型为 convert"
+      ;;
+    *)
+      info "转换原因：$convert_reason"
+      ;;
+  esac
+  info "subconverter 请求：GET $api"
+  info "subconverter 参数：target=clash"
+  info "subconverter 参数：url=$url"
+  info "subconverter 未发送参数：insert/config/emoji/list（使用 subconverter 默认值）"
 
-  if ! curl -fL -G "$api" \
+  errexit_was_set="false"
+  case "$-" in
+    *e*)
+      errexit_was_set="true"
+      set +e
+      ;;
+  esac
+
+  curl_meta="$(curl -sS -L -G "$api" \
     --data-urlencode "target=clash" \
     --data-urlencode "url=$url" \
-    -o "$tmp_file"; then
-    rm -f "$tmp_file" 2>/dev/null || true
+    -o "$tmp_file" \
+    -w '%{http_code}\n%{url_effective}' 2>"$curl_error_file")"
+  curl_rc=$?
+
+  [ "$errexit_was_set" = "true" ] && set -e
+
+  http_code="$(printf '%s\n' "$curl_meta" | head -n 1)"
+  effective_url="$(printf '%s\n' "$curl_meta" | sed -n '2p')"
+
+  [ -n "${effective_url:-}" ] && info "subconverter 实际请求 URL：$effective_url"
+  [ -n "${http_code:-}" ] && info "subconverter HTTP 状态码：$http_code"
+
+  if [ "$curl_rc" -ne 0 ] || [ -z "${http_code:-}" ] || [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+    warn "subconverter 转换请求失败：curl_rc=$curl_rc http_code=${http_code:-unknown}"
+    [ -s "$curl_error_file" ] && {
+      warn "curl 错误输出："
+      head -n 20 "$curl_error_file" >&2
+    }
+    [ -s "$tmp_file" ] && {
+      warn "subconverter 响应体预览："
+      head -n 20 "$tmp_file" >&2
+    }
+    rm -f "$tmp_file" "$curl_error_file" 2>/dev/null || true
     return 1
   fi
+
+  rm -f "$curl_error_file" 2>/dev/null || true
 
   [ -s "$tmp_file" ] || {
     rm -f "$tmp_file" 2>/dev/null || true
@@ -3004,7 +3112,7 @@ fetch_subscription_source() {
         candidate_file="$(mktemp)"
         rm -f "$candidate_file" 2>/dev/null || true
 
-        if convert_subscription_via_subconverter "$url" "$raw_file" "$fetch_reason"; then
+        if convert_subscription_via_subconverter "$url" "$raw_file" "$fetch_reason" "direct-clash-invalid"; then
           if build_runtime_candidate_from_payload "$raw_file" "$candidate_file"; then
             mv -f "$candidate_file" "$out_file"
             rm -f "$raw_file" 2>/dev/null || true
@@ -3028,7 +3136,7 @@ fetch_subscription_source() {
           ;;
       esac
 
-      if convert_subscription_via_subconverter "$url" "$raw_file" "$fetch_reason"; then
+      if convert_subscription_via_subconverter "$url" "$raw_file" "$fetch_reason" "subscription-type-convert"; then
         if build_runtime_candidate_from_payload "$raw_file" "$candidate_file"; then
           mv -f "$candidate_file" "$out_file"
           rm -f "$raw_file" 2>/dev/null || true

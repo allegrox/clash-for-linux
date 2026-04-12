@@ -166,16 +166,68 @@ mark_subconverter_version_installed() {
   write_runtime_value "SUBCONVERTER_VERSION_INSTALLED" "$version"
 }
 
+detect_subconverter_package_type() {
+  local file="$1"
+  local desc magic
+
+  if tar -tzf "$file" >/dev/null 2>&1; then
+    echo "tar.gz"
+    return 0
+  fi
+
+  magic="$(od -An -tx1 -N4 "$file" 2>/dev/null | tr -d '[:space:]' || true)"
+
+  case "$magic" in
+    504b0304|504b0506|504b0708)
+      echo "zip"
+      return 0
+      ;;
+    7f454c46)
+      echo "binary"
+      return 0
+      ;;
+  esac
+
+  if command -v unzip >/dev/null 2>&1 && unzip -tq "$file" >/dev/null 2>&1; then
+    echo "zip"
+    return 0
+  fi
+
+  desc="$(file -b "$file" 2>/dev/null || true)"
+  case "$desc" in
+    *ELF*|*executable*)
+      echo "binary"
+      return 0
+      ;;
+  esac
+
+  echo "unknown"
+}
+
+find_subconverter_binary() {
+  local search_dir="$1"
+  local found
+
+  found="$(find "$search_dir" \( -type f -o -type l \) -name subconverter -print 2>/dev/null | head -n 1)"
+  [ -n "${found:-}" ] || return 1
+  echo "$found"
+}
+
 resolve_subconverter() {
   local arch version file url tmp_dir tmp_file target_dir installed_version
+  local extract_dir package_type found_bin target_bin
 
   arch="$(get_arch)"
   version="${SUBCONVERTER_VERSION:-$DEFAULT_SUBCONVERTER_VERSION}"
   target_dir="$(subconverter_home)"
+  target_bin="$(subconverter_bin)"
   installed_version="$(subconverter_version_file_value)"
 
-  if [ -x "$(subconverter_bin)" ] && [ "$installed_version" = "$version" ]; then
-    return 0
+  if [ -f "$target_bin" ] && [ "$installed_version" = "$version" ]; then
+    chmod +x "$target_bin" 2>/dev/null || true
+    if [ -x "$target_bin" ]; then
+      return 0
+    fi
   fi
 
   case "$arch" in
@@ -188,20 +240,56 @@ resolve_subconverter() {
   url="https://github.com/tindy2013/subconverter/releases/download/${version}/${file}"
   tmp_dir="$(mktemp -d)"
   tmp_file="$tmp_dir/$file"
+  extract_dir="$tmp_dir/extract"
 
   download_file "$url" "$tmp_file" "subconverter"
+  info "subconverter 下载文件：$tmp_file"
+
+  package_type="$(detect_subconverter_package_type "$tmp_file")"
+  info "subconverter 下载文件类型：$package_type"
 
   rm -rf "$target_dir"
-  mkdir -p "$target_dir"
+  mkdir -p "$target_dir" "$extract_dir"
 
-  tar -xzf "$tmp_file" -C "$target_dir"
+  case "$package_type" in
+    tar.gz)
+      info "subconverter 解压目录：$extract_dir"
+      tar -xzf "$tmp_file" -C "$extract_dir"
+      found_bin="$(find_subconverter_binary "$extract_dir" 2>/dev/null || true)"
+      ;;
+    zip)
+      command -v unzip >/dev/null 2>&1 || die "解压 subconverter zip 失败：系统缺少 unzip"
+      info "subconverter 解压目录：$extract_dir"
+      unzip -oq "$tmp_file" -d "$extract_dir"
+      found_bin="$(find_subconverter_binary "$extract_dir" 2>/dev/null || true)"
+      ;;
+    binary)
+      info "subconverter 解压目录：无需解压"
+      found_bin="$tmp_file"
+      ;;
+    *)
+      if command -v file >/dev/null 2>&1; then
+        file "$tmp_file" >&2 || true
+      fi
+      die "subconverter 下载内容异常：无法识别下载包类型（文件：$tmp_file）"
+      ;;
+  esac
 
-  [ -x "$(subconverter_bin)" ] || {
-    rm -rf "$tmp_dir"
-    die "解压后未找到 subconverter 可执行文件"
+  [ -n "${found_bin:-}" ] && [ -f "$found_bin" ] || {
+    find "$extract_dir" -maxdepth 3 \( -type f -o -type l \) 2>/dev/null | sed 's/^/  /' >&2 || true
+    die "解压后未找到 subconverter 文件"
   }
 
-  chmod +x "$(subconverter_bin)"
+  info "subconverter 实际文件：$found_bin"
+  cp -f "$found_bin" "$target_bin"
+  chmod +x "$target_bin"
+  info "subconverter 最终落盘：$target_bin"
+
+  [ -x "$target_bin" ] || {
+    rm -rf "$tmp_dir"
+    die "subconverter 文件不可执行：$target_bin"
+  }
+
   mark_subconverter_version_installed "$version"
   rm -rf "$tmp_dir"
 }
@@ -241,8 +329,85 @@ ensure_runtime_config_ready() {
   die "最后成功配置也不可用：$last_file"
 }
 
+tun_public_ip_without_proxy_env() {
+  local ip route_dev
+
+  route_dev="$(default_route_dev 2>/dev/null || true)"
+  if [ -n "${route_dev:-}" ] && ! printf '%s\n' "$route_dev" | grep -Eiq '(tun|utun|mihomo|clash|meta)'; then
+    ip="$(
+      env \
+        -u http_proxy \
+        -u https_proxy \
+        -u HTTP_PROXY \
+        -u HTTPS_PROXY \
+        -u all_proxy \
+        -u ALL_PROXY \
+        curl --interface "$route_dev" -fsSL --connect-timeout 3 --max-time 6 https://ip.sb 2>/dev/null \
+        | head -n 1 \
+        | tr -d '\r' \
+        | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    )"
+
+    if [ -n "${ip:-}" ]; then
+      echo "$ip"
+      return 0
+    fi
+  fi
+
+  env \
+    -u http_proxy \
+    -u https_proxy \
+    -u HTTP_PROXY \
+    -u HTTPS_PROXY \
+    -u all_proxy \
+    -u ALL_PROXY \
+    curl -fsSL --connect-timeout 3 --max-time 6 https://ip.sb 2>/dev/null \
+    | head -n 1 \
+    | tr -d '\r' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+tun_public_ip_with_current_route() {
+  env \
+    -u http_proxy \
+    -u https_proxy \
+    -u HTTP_PROXY \
+    -u HTTPS_PROXY \
+    -u all_proxy \
+    -u ALL_PROXY \
+    curl -fsSL --connect-timeout 3 --max-time 6 https://ip.sb 2>/dev/null \
+    | head -n 1 \
+    | tr -d '\r' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+tun_traffic_effective_check() {
+  local host_ip current_ip
+
+  host_ip="$(tun_public_ip_without_proxy_env 2>/dev/null || true)"
+  current_ip="$(tun_public_ip_with_current_route 2>/dev/null || true)"
+
+  if [ -z "${host_ip:-}" ]; then
+    echo "host-ip-unavailable"
+    return 1
+  fi
+
+  if [ -z "${current_ip:-}" ]; then
+    echo "current-ip-unavailable"
+    return 1
+  fi
+
+  if [ "$current_ip" != "$host_ip" ]; then
+    echo "ok"
+    return 0
+  fi
+
+  echo "traffic-same-as-host"
+  return 1
+}
+
 tun_effective_check() {
-  local config_tun_enabled auto_route controller_ok route_ok
+  local config_tun_enabled controller_ok traffic_result
 
   config_tun_enabled="$(runtime_config_tun_enabled 2>/dev/null || true)"
 
@@ -271,24 +436,16 @@ tun_effective_check() {
     return 1
   fi
 
-  auto_route="$(runtime_config_tun_auto_route 2>/dev/null || true)"
-  route_ok="unknown"
+  traffic_result="$(tun_traffic_effective_check 2>/dev/null || true)"
+  [ -n "${traffic_result:-}" ] || traffic_result="traffic-unknown"
 
-  if [ "${auto_route:-false}" = "true" ]; then
-    if default_route_is_tun_like; then
-      route_ok="true"
-    else
-      route_ok="false"
-    fi
-
-    if [ "$route_ok" != "true" ]; then
-      echo "default-route-not-tun"
-      return 1
-    fi
+  if [ "$traffic_result" = "ok" ]; then
+    echo "ok"
+    return 0
   fi
 
-  echo "ok"
-  return 0
+  echo "$traffic_result"
+  return 1
 }
 
 tun_disable_check() {
@@ -317,6 +474,22 @@ tun_disable_check() {
   return 0
 }
 
+wait_runtime_controller_ready() {
+  local max_try="${1:-8}"
+  local i=0
+
+  while [ "$i" -lt "$max_try" ]; do
+    if proxy_controller_reachable 2>/dev/null; then
+      return 0
+    fi
+
+    sleep 1
+    i=$((i + 1))
+  done
+
+  return 1
+}
+
 start_runtime() {
   local config_file="$RUNTIME_DIR/config.yaml"
 
@@ -327,16 +500,30 @@ start_runtime() {
     local old_pid
     old_pid="$(cat "$RUNTIME_DIR/mihomo.pid" 2>/dev/null || true)"
     if [ -n "${old_pid:-}" ] && kill -0 "$old_pid" 2>/dev/null; then
-      warn "Mihomo 已在运行：pid=$old_pid"
-      return 0
+      if proxy_controller_reachable 2>/dev/null; then
+        warn "Mihomo 已在运行：pid=$old_pid"
+        return 0
+      fi
+
+      warn "Mihomo 进程仍在运行但控制器不可访问，正在重启以加载当前配置"
+      stop_runtime || true
+    else
+      rm -f "$RUNTIME_DIR/mihomo.pid"
     fi
-    rm -f "$RUNTIME_DIR/mihomo.pid"
   fi
 
   nohup "$(runtime_kernel_bin)" -f "$config_file" -d "$RUNTIME_DIR" \
     > "$LOG_DIR/mihomo.out.log" 2>&1 &
 
   echo $! > "$RUNTIME_DIR/mihomo.pid"
+
+  if ! wait_runtime_controller_ready 8; then
+    warn "$(runtime_kernel_name) 已启动，但控制器未在预期时间内可访问"
+    local new_pid
+    new_pid="$(cat "$RUNTIME_DIR/mihomo.pid" 2>/dev/null || true)"
+    [ -n "${new_pid:-}" ] && kill -0 "$new_pid" 2>/dev/null || return 1
+  fi
+
   success "$(runtime_kernel_name) 已启动：pid=$(cat "$RUNTIME_DIR/mihomo.pid")"
 }
 
