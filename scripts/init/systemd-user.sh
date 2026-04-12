@@ -27,7 +27,11 @@ WantedBy=default.target
 EOF
 
   systemctl --user daemon-reload
-  systemctl --user enable "$(service_unit_name)" >/dev/null 2>&1 || true
+  if systemd_user_service_autostart_preference_enabled; then
+    systemctl --user enable "$(service_unit_name)" >/dev/null 2>&1 || true
+  else
+    systemctl --user disable "$(service_unit_name)" >/dev/null 2>&1 || true
+  fi
 
   write_runtime_value "RUNTIME_BACKEND" "systemd-user"
   write_runtime_value "INSTALL_SCOPE" "$INSTALL_SCOPE"
@@ -55,6 +59,40 @@ systemd_user_service_stop() {
 
 systemd_user_service_restart() {
   systemctl --user restart "$(service_unit_name)"
+}
+
+systemd_user_service_autostart_preference_enabled() {
+  case "$(read_runtime_value "RUNTIME_BOOT_AUTOSTART_EXPLICIT" 2>/dev/null || echo false)" in
+    true|1|yes|on)
+      case "$(read_runtime_value "RUNTIME_BOOT_AUTOSTART" 2>/dev/null || echo true)" in
+        false|0|no|off)
+          return 1
+          ;;
+      esac
+      ;;
+  esac
+
+  return 0
+}
+
+systemd_user_service_autostart_enable() {
+  systemctl --user enable "$(service_unit_name)" >/dev/null
+  write_runtime_value "RUNTIME_BOOT_AUTOSTART" "true"
+  write_runtime_value "RUNTIME_BOOT_AUTOSTART_EXPLICIT" "true"
+}
+
+systemd_user_service_autostart_disable() {
+  systemctl --user disable "$(service_unit_name)" >/dev/null 2>&1 || true
+  write_runtime_value "RUNTIME_BOOT_AUTOSTART" "false"
+  write_runtime_value "RUNTIME_BOOT_AUTOSTART_EXPLICIT" "true"
+}
+
+systemd_user_service_autostart_status() {
+  if systemctl --user is-enabled --quiet "$(service_unit_name)" 2>/dev/null; then
+    echo "on"
+  else
+    echo "off"
+  fi
 }
 
 systemd_user_service_status_text() {
