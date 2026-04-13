@@ -2,3 +2,6 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 *.env text eol=lf
+*.gz binary
+*.zip binary
+*.mmdb binary

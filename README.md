@@ -218,9 +218,37 @@ YQ_VERSION=v4.44.3
 SUBCONVERTER_VERSION=v0.9.0
 MIHOMO_DOWNLOAD_BASE=https://github.com/MetaCubeX/mihomo/releases/download
 CLASH_DOWNLOAD_BASE=https://github.com/WindSpiritSR/clash/releases/download
+CLASH_BUNDLED_ASSET_ENABLED=true
 ```
 
 按需设置即可，不需要每项都写。
+
+### 内置运行依赖
+
+当前正式支持的架构为 `amd64`、`arm64`、`armv7`。超出这三种架构时会明确失败，不会伪装成已支持。
+
+如果安装环境访问 GitHub 很慢，可以把 Mihomo、yq、subconverter 的刚需文件跟随项目一起分发。安装和 `clashctl upgrade` 会优先读取 `resources/bin` 中与当前版本、架构对应的精确文件名；本地没有对应文件时，会回退到原来的远程下载逻辑，不影响后续升级内核。
+
+Clash 仅作为兼容内核处理，固定走远程下载，不会命中 `resources/bin` 中的本地资源。
+
+推荐路径直接放在分类目录下：
+
+```text
+resources/bin/mihomo/mihomo-linux-amd64-compatible-v1.19.23.gz
+resources/bin/mihomo/mihomo-linux-arm64-v1.19.23.gz
+resources/bin/mihomo/mihomo-linux-armv7-v1.19.23.gz
+resources/bin/yq/yq_linux_amd64.tar.gz
+resources/bin/yq/yq_linux_arm64.tar.gz
+resources/bin/yq/yq_linux_arm.tar.gz
+resources/bin/subconverter/subconverter_linux64.tar.gz
+resources/bin/subconverter/subconverter_aarch64.tar.gz
+resources/bin/subconverter/subconverter_armv7.tar.gz
+resources/geo/Country.mmdb
+```
+
+版本仍由 `.env` 中的 `MIHOMO_VERSION`、`CLASH_VERSION`、`YQ_VERSION`、`SUBCONVERTER_VERSION` 控制。脚本不会扫描目录，也不会自动选择最高版本；如果升级版本，请同步放入新版本对应文件，或让脚本回退到远程下载。
+
+也可以设置 `CLASH_BUNDLED_ASSET_ENABLED=false` 强制跳过内置文件，或用 `CLASH_BUNDLED_ASSET_DIR=/path/to/assets` 指向项目外的资源目录。Mihomo、yq、subconverter 兼容旧路径 `resources/bin/<category>/<version>/<file>`。
 
 ### `config/mixin.yaml`
 

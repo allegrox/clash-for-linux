@@ -26,7 +26,9 @@ resolve_yq() {
   tmp_dir="$(mktemp -d)"
   tmp_file="$tmp_dir/$file"
 
-  download_file "$url" "$tmp_file" "yq"
+  if ! copy_bundled_asset "yq" "$version" "$file" "$tmp_file" "yq"; then
+    download_file "$url" "$tmp_file" "yq"
+  fi
   tar -xzf "$tmp_file" -C "$tmp_dir"
 
   if [ -f "$tmp_dir/yq_linux_${arch}" ]; then
@@ -69,7 +71,9 @@ resolve_mihomo() {
   fi
   tmp_file="$(mktemp)"
 
-  download_file "$url" "$tmp_file" "mihomo（可在 .env 中设置 MIHOMO_DOWNLOAD_BASE / MIHOMO_DOWNLOAD_URL）"
+  if ! copy_bundled_asset "mihomo" "$version" "$file" "$tmp_file" "mihomo"; then
+    download_file "$url" "$tmp_file" "mihomo（可在 .env 中设置 MIHOMO_DOWNLOAD_BASE / MIHOMO_DOWNLOAD_URL）"
+  fi
   gzip -dc "$tmp_file" > "$(mihomo_bin)"
   chmod +x "$(mihomo_bin)"
   rm -f "$tmp_file"
@@ -242,7 +246,9 @@ resolve_subconverter() {
   tmp_file="$tmp_dir/$file"
   extract_dir="$tmp_dir/extract"
 
-  download_file "$url" "$tmp_file" "subconverter"
+  if ! copy_bundled_asset "subconverter" "$version" "$file" "$tmp_file" "subconverter"; then
+    download_file "$url" "$tmp_file" "subconverter"
+  fi
 
   package_type="$(detect_subconverter_package_type "$tmp_file")"
 

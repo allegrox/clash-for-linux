@@ -315,6 +315,55 @@ github_proxy_prefix() {
   echo "$prefix"
 }
 
+bundled_asset_enabled() {
+  case "${CLASH_BUNDLED_ASSET_ENABLED:-true}" in
+    true|1|yes|on) return 0 ;;
+    false|0|no|off) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+bundled_asset_root() {
+  if [ -n "${CLASH_BUNDLED_ASSET_DIR:-}" ]; then
+    echo "$CLASH_BUNDLED_ASSET_DIR"
+    return 0
+  fi
+
+  [ -n "${RESOURCE_DIR:-}" ] || return 1
+  echo "$RESOURCE_DIR/bin"
+}
+
+copy_bundled_asset() {
+  local category="$1"
+  local version="$2"
+  local file="$3"
+  local out="$4"
+  local asset_name="${5:-$file}"
+  local root candidate
+
+  [ "$category" != "clash" ] || return 1
+  bundled_asset_enabled || return 1
+
+  root="$(bundled_asset_root 2>/dev/null || true)"
+  [ -n "${root:-}" ] || return 1
+
+  for candidate in \
+    "$root/$category/$file" \
+    "$root/$category/$version/$file" \
+    "$root/$file"; do
+    [ -s "$candidate" ] || continue
+
+    mkdir -p "$(dirname "$out")"
+    if [ "$candidate" != "$out" ]; then
+      cp -f "$candidate" "$out"
+    fi
+    success "${asset_name} 已使用内置资源：$candidate"
+    return 0
+  done
+
+  return 1
+}
+
 download_connect_timeout() {
   echo "${CLASH_DOWNLOAD_CONNECT_TIMEOUT:-8}"
 }
@@ -1061,6 +1110,7 @@ init_layout() {
     "$CONFIG_DIR" \
     "$RESOURCE_DIR" \
     "$RESOURCE_DIR/geo" \
+    "$RESOURCE_DIR/bin" \
     "$RESOURCE_DIR/dashboard" \
     "$PROJECT_DIR/scripts/core" \
     "$PROJECT_DIR/scripts/init" \

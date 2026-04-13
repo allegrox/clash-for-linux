@@ -302,12 +302,18 @@ wait_install_runtime_ready() {
   write_runtime_value "INSTALL_VERIFY_CONTROLLER_READY" "$controller_ready"
 }
 
+clashctl_command_available() {
+  [ -x "$(clashctl_entry_target)" ] \
+    || [ -x "$(clashctl_bin_entry_target)" ] \
+    || command -v clashctl >/dev/null 2>&1
+}
+
 post_install_verify() {
   local has_subscription="false"
   local runtime_ready="false"
   local controller_ready="false"
 
-  if command -v clashctl >/dev/null 2>&1; then
+  if clashctl_command_available; then
     write_runtime_value "INSTALL_VERIFY_COMMAND_READY" "true"
   else
     write_runtime_value "INSTALL_VERIFY_COMMAND_READY" "false"
