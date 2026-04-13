@@ -671,6 +671,150 @@ runtime_mixed_port_bind_failure_port() {
   printf '%s\n' "$line" | grep -Eo ':[0-9]+:' | tail -n 1 | tr -d ':'
 }
 
+runtime_mihomo_log_port_listened() {
+  local keyword="$1"
+  local port="$2"
+  local log_file="$LOG_DIR/mihomo.out.log"
+  local line
+
+  [ -n "${keyword:-}" ] || return 1
+  [ -n "${port:-}" ] || return 1
+  [ -f "$log_file" ] || return 1
+
+  line="$(grep -Ei "(${keyword}).*(listen|listening|start|started).*[:.]${port}([^0-9]|$)|[:.]${port}([^0-9]|$).*(listen|listening|start|started).*(${keyword})" "$log_file" 2>/dev/null | tail -n 1 || true)"
+  [ -n "${line:-}" ]
+}
+
+runtime_mixed_port_controller_listening() {
+  local port
+
+  proxy_controller_reachable 2>/dev/null && return 0
+
+  port="$(runtime_config_controller_port 2>/dev/null || true)"
+  [ -n "${port:-}" ] || return 1
+
+  runtime_mihomo_log_port_listened "RESTful API|controller" "$port"
+}
+
+runtime_mixed_port_dns_listening() {
+  local port
+
+  port="$(runtime_config_dns_port 2>/dev/null || true)"
+  [ -n "${port:-}" ] || return 1
+
+  runtime_mihomo_log_port_listened "DNS|dns" "$port" && return 0
+  status_is_running 2>/dev/null && is_port_in_use "$port"
+}
+
+mixed_port_bind_environment_text() {
+  local scope backend container
+
+  scope="$(install_env_scope 2>/dev/null || true)"
+  [ -n "${scope:-}" ] || scope="${INSTALL_SCOPE:-unknown}"
+
+  backend="$(runtime_backend 2>/dev/null || true)"
+  [ -n "${backend:-}" ] || backend="$(install_plan_backend 2>/dev/null || true)"
+  [ -n "${backend:-}" ] || backend="unknown"
+
+  container="$(container_env_type 2>/dev/null || true)"
+  [ -n "${container:-}" ] || container="$(install_env_container 2>/dev/null || true)"
+  [ -n "${container:-}" ] || container="unknown"
+
+  echo "安装范围 ${scope}，后端 ${backend}，容器环境 ${container}"
+}
+
+mixed_port_bind_observation_line() {
+  local port dns_port
+
+  port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
+  dns_port="$(runtime_config_dns_port 2>/dev/null || true)"
+
+  if runtime_mixed_port_controller_listening 2>/dev/null; then
+    echo "配置已加载，控制器已启动，仅代理端口 ${port:-unknown} 绑定失败；不是订阅/配置主链失败"
+  fi
+
+  if [ -n "${dns_port:-}" ] && runtime_mixed_port_dns_listening 2>/dev/null; then
+    echo "DNS 端口 ${dns_port} 已监听，可先聚焦 mixed-port"
+  fi
+}
+
+mixed_port_bind_recommendation_emit() {
+  local style="$1"
+  local number="$2"
+  local text="$3"
+
+  case "$style" in
+    numbered)
+      echo "${number}. ${text}"
+      ;;
+    icon)
+      echo "💡 ${text}"
+      ;;
+    *)
+      echo "$text"
+      ;;
+  esac
+}
+
+mixed_port_bind_recommendation_lines() {
+  local style="${1:-icon}"
+  local kind port env_text n line
+
+  kind="$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)"
+  [ -n "${kind:-}" ] || return 1
+
+  port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
+  env_text="$(mixed_port_bind_environment_text 2>/dev/null || echo "当前环境")"
+  n=1
+
+  while IFS= read -r line; do
+    [ -n "${line:-}" ] || continue
+    mixed_port_bind_recommendation_emit "$style" "$n" "$line"
+    n=$((n + 1))
+  done <<EOF
+$(mixed_port_bind_observation_line 2>/dev/null || true)
+EOF
+
+  case "$kind" in
+    bind_denied)
+      mixed_port_bind_recommendation_emit "$style" "$n" "当前 ${env_text} 对端口 ${port:-unknown} 的可绑定性受限；优先修改 .env 中 MIXED_PORT 后执行 clashctl config regen"
+      n=$((n + 1))
+      ;;
+    address_in_use)
+      mixed_port_bind_recommendation_emit "$style" "$n" "mixed-port ${port:-unknown} 存在端口冲突；先检查占用进程，或修改 .env 中 MIXED_PORT 后执行 clashctl config regen"
+      n=$((n + 1))
+      ;;
+    *)
+      mixed_port_bind_recommendation_emit "$style" "$n" "mixed-port ${port:-unknown} 绑定失败；先查看内核日志确认端口错误"
+      n=$((n + 1))
+      ;;
+  esac
+
+  mixed_port_bind_recommendation_emit "$style" "$n" "保留日志线索：clashctl logs mihomo"
+}
+
+mixed_port_bind_next_action() {
+  local kind port
+
+  kind="$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)"
+  port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
+
+  case "$kind" in
+    bind_denied)
+      echo "修改 .env 中 MIXED_PORT 后执行 clashctl config regen"
+      ;;
+    address_in_use)
+      echo "检查 ${port:-mixed-port} 占用，或修改 .env 中 MIXED_PORT 后执行 clashctl config regen"
+      ;;
+    bind_failed)
+      echo "clashctl logs mihomo"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 system_state_runtime_status() {
   if status_is_running; then
     if proxy_controller_reachable 2>/dev/null; then
@@ -842,7 +986,7 @@ system_state_default_action() {
   case "$SYSTEM_STATE" in
     stopped)
       if [ "${BIND_FAILURE_STATE:-none}" != "none" ]; then
-        echo "clashctl logs mihomo"
+        mixed_port_bind_next_action 2>/dev/null || echo "clashctl logs mihomo"
         return 0
       fi
 
@@ -854,7 +998,7 @@ system_state_default_action() {
       ;;
     broken)
       if [ "${BIND_FAILURE_STATE:-none}" != "none" ]; then
-        echo "clashctl logs mihomo"
+        mixed_port_bind_next_action 2>/dev/null || echo "clashctl logs mihomo"
         return 0
       fi
 
@@ -881,7 +1025,10 @@ system_state_default_action() {
 }
 
 system_state_problem_lines() {
+  local mixed_port
+
   load_system_state
+  mixed_port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
 
   case "$SYSTEM_STATE" in
     ready)
@@ -889,7 +1036,7 @@ system_state_problem_lines() {
       ;;
     stopped)
       if [ "${BIND_FAILURE_STATE:-none}" != "none" ]; then
-        echo "• $(runtime_mixed_port_bind_failure_text)"
+        echo "• $(runtime_mixed_port_bind_failure_text)${mixed_port:+：${mixed_port}}"
       elif [ "$SUBSCRIPTION_STATE" = "missing" ]; then
         echo "• 当前没有可用订阅"
       else
@@ -901,7 +1048,7 @@ system_state_problem_lines() {
       [ "$SUBSCRIPTION_STATE" = "degraded" ] && echo "• 当前主订阅健康异常"
       ;;
     broken)
-      [ "${BIND_FAILURE_STATE:-none}" != "none" ] && echo "• $(runtime_mixed_port_bind_failure_text)"
+      [ "${BIND_FAILURE_STATE:-none}" != "none" ] && echo "• $(runtime_mixed_port_bind_failure_text)${mixed_port:+：${mixed_port}}"
       [ "$BUILD_STATE" = "failed" ] && echo "• 最近一次编译失败"
       [ "$SUBSCRIPTION_STATE" = "missing" ] && echo "• 当前没有主订阅"
       [ "$SUBSCRIPTION_STATE" = "invalid" ] && echo "• 当前主订阅无效"
@@ -915,20 +1062,7 @@ system_state_recommendation_lines() {
   load_system_state
 
   if [ "${BIND_FAILURE_STATE:-none}" != "none" ]; then
-    case "$BIND_FAILURE_STATE" in
-      address_in_use)
-        echo "1. 处理 mixed-port 端口占用，或调整 MIXED_PORT 后重新生成配置"
-        echo "2. clashctl logs mihomo"
-        ;;
-      bind_denied)
-        echo "1. 检查当前环境权限/端口可绑定性，或改用可绑定的 MIXED_PORT"
-        echo "2. clashctl logs mihomo"
-        ;;
-      *)
-        echo "1. 查看 mixed-port 绑定失败日志"
-        echo "2. clashctl logs mihomo"
-        ;;
-    esac
+    mixed_port_bind_recommendation_lines numbered
     return 0
   fi
 
@@ -1594,13 +1728,14 @@ status_risk_reason_lines() {
   local build_block_reason build_block_time
   local fallback_used fallback_time fallback_reason
   local tun_enabled tun_effective tun_container_mode tun_kernel_support tun_verify_reason
-  local bind_failure_text
+  local bind_failure_text mixed_port
 
   build_status="$(status_build_last_status 2>/dev/null || true)"
   active="$(active_subscription_name 2>/dev/null || true)"
   controller_ok="false"
   proxy_controller_reachable 2>/dev/null && controller_ok="true"
   bind_failure_text="$(runtime_mixed_port_bind_failure_text 2>/dev/null || true)"
+  mixed_port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
 
   build_block_reason="$(status_runtime_last_build_block_reason 2>/dev/null || true)"
   build_block_time="$(status_runtime_last_build_block_time 2>/dev/null || true)"
@@ -1615,7 +1750,8 @@ status_risk_reason_lines() {
 
   if ! status_is_running; then
     if [ -n "${bind_failure_text:-}" ]; then
-      echo "• ${bind_failure_text}"
+      echo "• ${bind_failure_text}${mixed_port:+：${mixed_port}}"
+      mixed_port_bind_observation_line | sed 's/^/• /'
     else
       echo "• 代理内核未启动"
     fi
@@ -1797,11 +1933,16 @@ connectivity_issue_code() {
 }
 
 connectivity_issue_text() {
-  case "$(connectivity_issue_code)" in
+  local issue port
+
+  issue="$(connectivity_issue_code)"
+  port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
+
+  case "$issue" in
     ok) echo "可用（代理链路已闭环）" ;;
-    mixed_port_bind_denied) echo "不可用（mixed-port 绑定被拒绝）" ;;
-    mixed_port_address_in_use) echo "不可用（mixed-port 端口被占用）" ;;
-    mixed_port_bind_failed) echo "不可用（mixed-port 绑定失败）" ;;
+    mixed_port_bind_denied) echo "不可用（mixed-port ${port:-unknown} 绑定被拒绝）" ;;
+    mixed_port_address_in_use) echo "不可用（mixed-port ${port:-unknown} 端口被占用）" ;;
+    mixed_port_bind_failed) echo "不可用（mixed-port ${port:-unknown} 绑定失败）" ;;
     runtime_stopped) echo "不可用（代理内核未启动）" ;;
     controller_unreachable) echo "异常（内核已运行，但控制器不可访问）" ;;
     config_invalid) echo "异常（当前运行配置不可用）" ;;
@@ -1823,7 +1964,7 @@ connectivity_next_action() {
       echo "clashon"
       ;;
     mixed_port_bind_denied|mixed_port_address_in_use|mixed_port_bind_failed)
-      echo "clashctl logs mihomo"
+      mixed_port_bind_next_action 2>/dev/null || echo "clashctl logs mihomo"
       ;;
     controller_unreachable)
       echo "clashctl doctor"
@@ -2082,7 +2223,7 @@ print_status_summary_compact() {
   local profile mixed_port controller controller_lan controller_public
   local running_text user_connectivity user_risk current_proxy_brief system_proxy_text
   local current_active dashboard_text dashboard_source_text dashboard_policy_text secret_text
-  local tun_text bind_failure_text
+  local tun_text bind_failure_text next_action
 
   profile="$(show_active_profile 2>/dev/null || true)"
   [ -n "${profile:-}" ] || profile="default"
@@ -2106,6 +2247,7 @@ print_status_summary_compact() {
   user_connectivity="$(connectivity_issue_text)"
   user_risk="$(status_user_risk_text)"
   current_proxy_brief="$(status_current_proxy_brief)"
+  next_action="$(system_state_default_action 2>/dev/null || echo 'clashctl status --verbose')"
   if system_proxy_supported; then
     system_proxy_text="$(system_proxy_status 2>/dev/null || echo off)"
   else
@@ -2142,7 +2284,11 @@ print_status_summary_compact() {
   echo "📡 当前订阅：${current_active:-未设置}"
   echo "🚀 当前节点：$current_proxy_brief"
   echo "🚨 当前风险：$user_risk"
-  echo "👉 clashctl select  切换节点"
+  if [ "$next_action" = "clashctl select" ]; then
+    echo "👉 clashctl select  切换节点"
+  else
+    echo "👉 下一步：$next_action"
+  fi
   echo
 
   echo "【核心入口】"
@@ -2194,7 +2340,7 @@ print_status_summary_verbose() {
   local install_backend_text install_container_text install_verify_text port_adjustment_text
   local tun_enabled tun_effective tun_stack tun_container_text tun_kernel_text tun_verify_result tun_verify_reason tun_verify_time
   local system_proxy_text dashboard_text dashboard_source_text dashboard_policy_text secret_text
-  local bind_failure_text
+  local bind_failure_text next_action
 
   profile="$(show_active_profile 2>/dev/null || true)"
   [ -n "${profile:-}" ] || profile="default"
@@ -2245,6 +2391,7 @@ print_status_summary_verbose() {
   user_connectivity="$(connectivity_issue_text)"
   user_risk="$(status_user_risk_text)"
   current_proxy_brief="$(status_current_proxy_brief)"
+  next_action="$(system_state_default_action 2>/dev/null || echo 'clashctl status --verbose')"
   install_backend_text="$(status_runtime_backend_text)"
   install_container_text="$(status_container_mode_text)"
   install_verify_text="$(status_install_verify_brief)"
@@ -2294,7 +2441,11 @@ print_status_summary_verbose() {
   echo "📡 当前订阅：${current_active:-未设置}"
   echo "🚀 当前节点：$current_proxy_brief"
   echo "🚨 当前风险：$user_risk"
-  echo "👉 clashctl select  切换节点"
+  if [ "$next_action" = "clashctl select" ]; then
+    echo "👉 clashctl select  切换节点"
+  else
+    echo "👉 下一步：$next_action"
+  fi
   echo
 
   echo "【核心入口】"
@@ -3240,7 +3391,7 @@ doctor_service() {
 }
 
 doctor_ports() {
-  local config_file mixed_port controller controller_port bind_failure_kind
+  local config_file mixed_port controller controller_port dns_port bind_failure_kind
 
   doctor_print_title "端口检查"
 
@@ -3266,6 +3417,7 @@ doctor_ports() {
   mixed_port="$("$(yq_bin)" eval '.["mixed-port"] // .port // ""' "$config_file" 2>/dev/null | head -n 1)"
   controller="$("$(yq_bin)" eval '.["external-controller"] // ""' "$config_file" 2>/dev/null | head -n 1)"
   controller_port="${controller##*:}"
+  dns_port="$(runtime_config_dns_port 2>/dev/null || true)"
   bind_failure_kind="$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)"
 
   if [ -n "${mixed_port:-}" ] && [ "$mixed_port" != "null" ]; then
@@ -3292,6 +3444,16 @@ doctor_ports() {
     fi
   else
     doctor_warn "无法检查控制器端口"
+  fi
+
+  if [ -n "${dns_port:-}" ] && [ "$dns_port" != "null" ]; then
+    if is_port_in_use "$dns_port"; then
+      doctor_ok "DNS 端口已监听：$dns_port"
+    else
+      doctor_warn "DNS 端口未监听：$dns_port"
+    fi
+  else
+    doctor_warn "无法检查 DNS 端口"
   fi
 
   if [ -x "$(subconverter_bin)" ]; then
@@ -4158,17 +4320,18 @@ doctor_risk_text() {
 }
 
 doctor_problem_lines() {
-  local active_sub bind_failure_text
+  local active_sub bind_failure_text mixed_port
 
   active_sub="$(active_subscription_name 2>/dev/null || true)"
   bind_failure_text="$(runtime_mixed_port_bind_failure_text 2>/dev/null || true)"
+  mixed_port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
 
   if ! runtime_config_exists; then
     echo "🚨 运行配置缺失"
   fi
 
   if [ -n "${bind_failure_text:-}" ]; then
-    echo "🚨 ${bind_failure_text}"
+    echo "🚨 ${bind_failure_text}${mixed_port:+：${mixed_port}}"
   elif ! status_is_running; then
     echo "🚨 代理内核未运行"
   fi
@@ -4196,14 +4359,17 @@ doctor_primary_conclusion() {
     case "$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)" in
       bind_denied)
         echo "❗ 当前不可用：mixed-port 绑定被拒绝"
+        mixed_port_bind_observation_line | sed -n '1p' | sed 's/^/   /'
         return 0
         ;;
       address_in_use)
         echo "❗ 当前不可用：mixed-port 端口被占用"
+        mixed_port_bind_observation_line | sed -n '1p' | sed 's/^/   /'
         return 0
         ;;
       bind_failed)
         echo "❗ 当前不可用：mixed-port 绑定失败"
+        mixed_port_bind_observation_line | sed -n '1p' | sed 's/^/   /'
         return 0
         ;;
     esac
@@ -4221,11 +4387,10 @@ doctor_primary_conclusion() {
 }
 
 doctor_recommendation_lines() {
-  local active_sub bind_failure_kind mixed_port
+  local active_sub bind_failure_kind
 
   active_sub="$(active_subscription_name 2>/dev/null || true)"
   bind_failure_kind="$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)"
-  mixed_port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
 
   if ! runtime_config_exists; then
     if [ -n "$(subscription_url 2>/dev/null || true)" ]; then
@@ -4237,20 +4402,7 @@ doctor_recommendation_lines() {
   fi
 
   if [ -n "${bind_failure_kind:-}" ]; then
-    case "$bind_failure_kind" in
-      bind_denied)
-        echo "💡 mixed-port 绑定被拒绝：检查当前环境权限/端口可绑定性（${mixed_port:-unknown}）"
-        echo "💡 如该端口在当前环境不可绑定，请改用可绑定的 MIXED_PORT 后重新生成配置"
-        ;;
-      address_in_use)
-        echo "💡 mixed-port 端口被占用：释放 ${mixed_port:-unknown}，或调整 MIXED_PORT 后重新生成配置"
-        echo "💡 可用 ss -ltnp / netstat -lntp 查看端口占用"
-        ;;
-      *)
-        echo "💡 mixed-port 绑定失败：先查看内核日志确认端口错误"
-        ;;
-    esac
-    echo "💡 clashctl logs mihomo"
+    mixed_port_bind_recommendation_lines icon
     return 0
   elif ! status_is_running; then
     echo "💡 clashon"
@@ -4280,13 +4432,14 @@ doctor_recommendation_lines() {
 }
 
 doctor_evidence_lines() {
-  local active_sub mixed_port controller bind_failure_kind bind_failure_line
+  local active_sub mixed_port controller bind_failure_kind bind_failure_line dns_port
 
   active_sub="$(active_subscription_name 2>/dev/null || true)"
   mixed_port="$(runtime_mixed_port_bind_failure_port 2>/dev/null || status_read_mixed_port 2>/dev/null || true)"
   controller="$(status_read_controller 2>/dev/null || true)"
   bind_failure_kind="$(runtime_mixed_port_bind_failure_kind 2>/dev/null || true)"
   bind_failure_line="$(runtime_mixed_port_bind_failure_line 2>/dev/null || true)"
+  dns_port="$(runtime_config_dns_port 2>/dev/null || true)"
 
   if runtime_config_exists; then
     echo "🔍 运行配置：存在"
@@ -4308,6 +4461,19 @@ doctor_evidence_lines() {
 
   if [ -n "${bind_failure_kind:-}" ]; then
     echo "🔍 mixed-port 绑定错误：${bind_failure_kind}"
+    echo "🔍 mixed-port 环境：$(mixed_port_bind_environment_text 2>/dev/null || echo unknown)"
+    if runtime_mixed_port_controller_listening 2>/dev/null; then
+      echo "🔍 控制器监听：已确认"
+    else
+      echo "🔍 控制器监听：未确认"
+    fi
+    if [ -n "${dns_port:-}" ]; then
+      if runtime_mixed_port_dns_listening 2>/dev/null; then
+        echo "🔍 DNS 监听：${dns_port}（已确认）"
+      else
+        echo "🔍 DNS 监听：${dns_port}（未确认）"
+      fi
+    fi
     [ -n "${bind_failure_line:-}" ] && echo "🔍 日志证据：${bind_failure_line}"
   fi
 
