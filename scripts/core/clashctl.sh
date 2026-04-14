@@ -6147,7 +6147,7 @@ cmd_proxy_nodes() {
     else
       printf '    🚀 %s\n' "$node"
     fi
-  done < <(proxy_group_nodes "$group")
+  done < <(proxy_group_selectable_nodes "$group")
 
   if [ "$found" != "true" ]; then
     echo "  📭 当前策略组没有候选节点"
@@ -6354,7 +6354,7 @@ proxy_select_interactive() {
   while IFS= read -r node; do
     [ -n "${node:-}" ] || continue
     nodes+=("$node")
-  done < <(proxy_group_nodes "$group")
+  done < <(proxy_group_selectable_nodes "$group")
 
   count="${#nodes[@]}"
   [ "$count" -gt 0 ] || die "📭 当前策略组没有候选节点：$group"

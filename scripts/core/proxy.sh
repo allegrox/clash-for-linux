@@ -323,9 +323,48 @@ proxy_group_nodes() {
     | "$(yq_bin)" -p=json eval ".proxies.\"$group\".all[] // \"\"" - 2>/dev/null
 }
 
+proxy_node_is_descriptive_entry() {
+  local node="$1"
+
+  case "${node:-}" in
+    "")
+      return 0
+      ;;
+    剩余流量：*|剩余流量:*|套餐到期：*|套餐到期:*|到期时间：*|到期时间:*|流量重置：*|流量重置:*|官网：*|官网:*|通知：*|通知:*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+proxy_node_is_selectable_candidate() {
+  local node="$1"
+
+  proxy_node_is_descriptive_entry "$node" && return 1
+  return 0
+}
+
+proxy_group_selectable_nodes() {
+  local group="$1"
+  local node
+
+  [ -n "${group:-}" ] || die "策略组名称不能为空"
+  proxy_group_exists "$group" || die "策略组不存在：$group"
+
+  while IFS= read -r node; do
+    [ -n "${node:-}" ] || continue
+    proxy_node_is_selectable_candidate "$node" || continue
+    echo "$node"
+  done < <(proxy_group_nodes "$group")
+}
+
 proxy_group_select() {
   local group="$1"
   local node="$2"
+  local base secret
+  local code response_file response_body
 
   [ -n "${group:-}" ] || die "策略组名称不能为空"
   [ -n "${node:-}" ] || die "节点名称不能为空"
@@ -333,11 +372,31 @@ proxy_group_select() {
   proxy_group_exists "$group" || die "策略组不存在：$group"
   proxy_group_is_selector "$group" || die "该策略组不支持手动切换：$group"
 
-  if ! proxy_group_nodes "$group" | grep -Fxq "$node"; then
+  if ! proxy_group_selectable_nodes "$group" | grep -Fxq "$node"; then
     die "节点不存在于策略组中：$group -> $node"
   fi
 
-  controller_curl PUT "/proxies/$group" "{\"name\":\"$node\"}" >/dev/null
+  base="$(controller_api_base)"
+  secret="$(controller_secret)"
+  response_file="$(mktemp)"
+  code="$(
+    curl -sS -o "$response_file" -w "%{http_code}" -X PUT \
+      -H "Content-Type: application/json" \
+      ${secret:+-H "Authorization: Bearer $secret"} \
+      --data "{\"name\":\"$node\"}" \
+      "$base/proxies/$group"
+  )"
+
+  if [ "${code:-000}" -lt 200 ] || [ "${code:-000}" -ge 300 ]; then
+    response_body="$(cat "$response_file" 2>/dev/null || true)"
+    rm -f "$response_file" 2>/dev/null || true
+    if [ -n "${response_body:-}" ]; then
+      die "节点切换失败：$response_body"
+    fi
+    die "节点切换失败：controller 返回 HTTP $code"
+  fi
+
+  rm -f "$response_file" 2>/dev/null || true
 }
 
 proxy_group_count() {
@@ -400,7 +459,7 @@ proxy_group_first_relay_node() {
     fi
     echo "$node"
     return 0
-  done < <(proxy_group_nodes "$group")
+  done < <(proxy_group_selectable_nodes "$group")
 
   return 1
 }
