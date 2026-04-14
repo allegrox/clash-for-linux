@@ -6473,6 +6473,32 @@ cmd_proxy() {
   return 0
 }
 
+proxy_env_detected() {
+  local value
+
+  for value in \
+    "${http_proxy:-}" "${https_proxy:-}" \
+    "${HTTP_PROXY:-}" "${HTTPS_PROXY:-}" \
+    "${all_proxy:-}" "${ALL_PROXY:-}"; do
+    [ -n "${value:-}" ] && return 0
+  done
+
+  if [ "$(system_proxy_status 2>/dev/null || echo off)" = "on" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+warn_if_no_proxy_env() {
+  proxy_env_detected && return 0
+
+  ui_warn "当前未检测到代理环境"
+  ui_next "建议先执行 clashon"
+  ui_info "否则可能下载缓慢或失败"
+  ui_blank
+}
+
 cmd_upgrade() {
   local verbose="false"
   local target_kernel=""
@@ -6494,6 +6520,8 @@ cmd_upgrade() {
     esac
     shift
   done
+
+  warn_if_no_proxy_env
 
   [ -n "${target_kernel:-}" ] || target_kernel="$(runtime_kernel_type)"
   target_kernel="$(normalize_kernel_type "$target_kernel")"
@@ -6538,6 +6566,8 @@ cmd_update() {
     esac
     shift
   done
+
+  warn_if_no_proxy_env
 
   ui_title "🔄 正在更新项目代码 ..."
 
