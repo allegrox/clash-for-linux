@@ -2624,9 +2624,7 @@ prompt_subscription_if_needed() {
   fi
 
   echo
-  echo "📦 订阅"
-  echo "请输入订阅链接"
-  # echo "直接回车可跳过，稍后执行：clashctl add <订阅链接>"
+  echo "🚀 请输入订阅链接"
   printf "> "
   IFS= read -r input_url || true
 
