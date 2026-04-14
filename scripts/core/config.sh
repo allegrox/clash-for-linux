@@ -380,6 +380,115 @@ copy_local_subscription_yaml() {
   [ -s "$out_file" ] || die "本地订阅文件为空：$local_path"
 }
 
+local_subscription_share_links_to_subconverter_url() {
+  local file="$1"
+
+  awk '
+    {
+      gsub(/\r/, "")
+      sub(/^[[:space:]]+/, "")
+      sub(/[[:space:]]+$/, "")
+    }
+    $0 == "" || $0 ~ /^#/ { next }
+    $0 ~ /^(vmess|vless|trojan|tuic):\/\// {
+      if (out != "") {
+        out = out "|"
+      }
+      out = out $0
+    }
+    END {
+      if (out == "") {
+        exit 1
+      }
+      print out
+    }
+  ' "$file"
+}
+
+decode_local_subscription_base64() {
+  local src="$1"
+  local out="$2"
+  local compact len mod
+
+  compact="$(mktemp)"
+  rm -f "$compact" 2>/dev/null || true
+
+  tr -d '\r\n\t ' < "$src" | tr '_-' '/+' > "$compact"
+  [ -s "$compact" ] || {
+    rm -f "$compact" 2>/dev/null || true
+    return 1
+  }
+
+  if grep -Eq '[^A-Za-z0-9+/=]' "$compact"; then
+    rm -f "$compact" 2>/dev/null || true
+    return 1
+  fi
+
+  len="$(wc -c < "$compact" | tr -d '[:space:]')"
+  case "$len" in
+    ''|*[!0-9]*)
+      rm -f "$compact" 2>/dev/null || true
+      return 1
+      ;;
+  esac
+
+  mod=$((len % 4))
+  case "$mod" in
+    0) ;;
+    2) printf '==' >> "$compact" ;;
+    3) printf '=' >> "$compact" ;;
+    *)
+      rm -f "$compact" 2>/dev/null || true
+      return 1
+      ;;
+  esac
+
+  if base64 --decode "$compact" > "$out" 2>/dev/null || base64 -d "$compact" > "$out" 2>/dev/null; then
+    rm -f "$compact" 2>/dev/null || true
+    [ -s "$out" ]
+    return
+  fi
+
+  rm -f "$compact" 2>/dev/null || true
+  return 1
+}
+
+local_subscription_convert_url_from_url() {
+  local url="$1"
+  local local_path decoded_file convert_url
+
+  LOCAL_SUBSCRIPTION_CONVERT_URL=""
+  local_path="$(subscription_file_path_from_url "$url")"
+
+  [ -f "$local_path" ] || die "本地订阅文件不存在：$local_path"
+  [ -r "$local_path" ] || die "本地订阅文件不可读：$local_path"
+  [ -s "$local_path" ] || die "本地订阅文件为空：$local_path"
+
+  if convert_url="$(local_subscription_share_links_to_subconverter_url "$local_path")"; then
+    info "本地订阅识别为分享链接，将通过 subconverter 转换"
+    LOCAL_SUBSCRIPTION_CONVERT_URL="$convert_url"
+    return 0
+  fi
+
+  decoded_file="$(mktemp)"
+  rm -f "$decoded_file" 2>/dev/null || true
+
+  if decode_local_subscription_base64 "$local_path" "$decoded_file"; then
+    if convert_url="$(local_subscription_share_links_to_subconverter_url "$decoded_file")"; then
+      rm -f "$decoded_file" 2>/dev/null || true
+      info "本地订阅识别为 Base64 分享链接，将通过 subconverter 转换"
+      LOCAL_SUBSCRIPTION_CONVERT_URL="$convert_url"
+      return 0
+    fi
+
+    rm -f "$decoded_file" 2>/dev/null || true
+    die "本地订阅不是 Clash YAML，Base64 解码后未发现支持的分享链接：$local_path"
+  fi
+
+  rm -f "$decoded_file" 2>/dev/null || true
+  die "本地订阅不是 Clash YAML，且无法识别为 Base64 或 vmess/vless/trojan/tuic 分享链接：$local_path"
+}
+
 download_subscription_yaml() {
   local url="$1"
   local out_file="$2"
@@ -2945,15 +3054,20 @@ convert_subscription_via_subconverter() {
   local api tmp_file curl_error_file
   local curl_meta curl_rc http_code effective_url errexit_was_set
   local log_file
+  local scheme convert_url
   local validate_ok="false"
 
   [ -n "${url:-}" ] || return 1
 
-  case "$(subscription_url_scheme "$url")" in
+  scheme="$(subscription_url_scheme "$url")"
+  convert_url="$url"
+
+  case "$scheme" in
     http|https)
       ;;
     file)
-      die "convert 格式暂不支持 file:// 本地订阅，请改用 clash 格式"
+      local_subscription_convert_url_from_url "$url"
+      convert_url="$LOCAL_SUBSCRIPTION_CONVERT_URL"
       ;;
     *)
       die "不支持的订阅协议：$url"
@@ -2962,7 +3076,7 @@ convert_subscription_via_subconverter() {
 
   case "$fetch_reason" in
     auto|install|bootstrap|"")
-      if subscription_cache_restore "$url" "convert" "$out_file"; then
+      if [ "$scheme" != "file" ] && subscription_cache_restore "$url" "convert" "$out_file"; then
         if subscription_yaml_validate "$out_file"; then
           return 0
         fi
@@ -2982,7 +3096,11 @@ convert_subscription_via_subconverter() {
   info "正在通过 subconverter 转换订阅"
   case "$convert_reason" in
     direct-clash-invalid)
-      info "转换原因：直连订阅已下载，但不是可直接运行的 Clash YAML"
+      if [ "$scheme" = "file" ]; then
+        info "转换原因：本地订阅不是可直接运行的 Clash YAML"
+      else
+        info "转换原因：直连订阅已下载，但不是可直接运行的 Clash YAML"
+      fi
       ;;
     subscription-type-convert)
       info "转换原因：订阅类型为 convert"
@@ -2993,7 +3111,11 @@ convert_subscription_via_subconverter() {
   esac
   info "subconverter 请求：GET $api"
   info "subconverter 参数：target=clash"
-  info "subconverter 参数：url=$url"
+  if [ "$scheme" = "file" ]; then
+    info "subconverter 参数：url=<本地订阅分享链接内容>"
+  else
+    info "subconverter 参数：url=$convert_url"
+  fi
   info "subconverter 未发送参数：insert/config/emoji/list（使用 subconverter 默认值）"
 
   errexit_was_set="false"
@@ -3006,7 +3128,7 @@ convert_subscription_via_subconverter() {
 
   curl_meta="$(curl -sS -L -G "$api" \
     --data-urlencode "target=clash" \
-    --data-urlencode "url=$url" \
+    --data-urlencode "url=$convert_url" \
     -o "$tmp_file" \
     -w '%{http_code}\n%{url_effective}' 2>"$curl_error_file")"
   curl_rc=$?
@@ -3016,7 +3138,13 @@ convert_subscription_via_subconverter() {
   http_code="$(printf '%s\n' "$curl_meta" | head -n 1)"
   effective_url="$(printf '%s\n' "$curl_meta" | sed -n '2p')"
 
-  [ -n "${effective_url:-}" ] && info "subconverter 实际请求 URL：$effective_url"
+  if [ -n "${effective_url:-}" ]; then
+    if [ "$scheme" = "file" ]; then
+      info "subconverter 实际请求 URL：<已省略本地订阅分享链接内容>"
+    else
+      info "subconverter 实际请求 URL：$effective_url"
+    fi
+  fi
   [ -n "${http_code:-}" ] && info "subconverter HTTP 状态码：$http_code"
 
   if [ "$curl_rc" -ne 0 ] || [ -z "${http_code:-}" ] || [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
@@ -3056,7 +3184,7 @@ convert_subscription_via_subconverter() {
   fi
 
   mv -f "$tmp_file" "$out_file"
-  subscription_cache_store "$url" "convert" "$out_file" "$api"
+  [ "$scheme" = "file" ] || subscription_cache_store "$url" "convert" "$out_file" "$api"
   return 0
 }
 
@@ -3253,11 +3381,12 @@ fetch_subscription_source() {
   local name="$1"
   local out_file="$2"
   local fetch_reason="${3:-auto}"
-  local url fmt reason
+  local url fmt reason scheme
   local raw_file candidate_file
 
   url="$(subscription_url_by_name "$name")"
   fmt="$(subscription_format_by_name "$name")"
+  scheme="$(subscription_url_scheme "$url")"
 
   raw_file="$(mktemp)"
   candidate_file="$(mktemp)"
@@ -3301,9 +3430,17 @@ fetch_subscription_source() {
           fi
 
           write_subscription_invalid_debug_snapshot "$raw_file"
-          reason="订阅下载成功，但原始配置与转换结果都不能直接运行"
+          if [ "$scheme" = "file" ]; then
+            reason="本地订阅转换成功，但 config 校验失败"
+          else
+            reason="订阅下载成功，但原始配置与转换结果都不能直接运行"
+          fi
         else
-          reason="订阅下载成功，但原始配置不能直接运行，且转换失败"
+          if [ "$scheme" = "file" ]; then
+            reason="本地订阅不是 Clash YAML，且 subconverter 转换失败"
+          else
+            reason="订阅下载成功，但原始配置不能直接运行，且转换失败"
+          fi
         fi
       else
         reason="订阅下载失败"
