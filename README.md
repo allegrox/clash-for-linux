@@ -60,6 +60,7 @@ bash install.sh
   clashsecret        🔑 查看或设置 Web 密钥
 📦 订阅
   clashctl add       ➕ 添加订阅
+  clashctl add local ➕ 从 runtime/subscriptions 导入本地订阅
   clashctl use       💱 切换订阅
   clashctl ls        📡 查看订阅列表
 📌 高级
@@ -157,6 +158,33 @@ clashctl sub remove <名称>
 
 WSL / 普通用户如果无权写入 `/etc/environment`，`clashon` 会自动降级：运行时照常启动，当前 Shell 代理变量生效；系统代理持久接管和开机代理保持不可用。
 
+### 本地配置导入
+
+推荐使用交互导入，放置目录为：`$PROJECT_DIR/runtime/subscriptions/`
+
+```bash
+clashctl add local
+# 输入：clash.yaml
+```
+
+实际等价于：
+
+```bash
+clashctl add "file://$PROJECT_DIR/runtime/subscriptions/clash.yaml"
+```
+
+进阶用法：也可以直接使用 `file://` 绝对路径导入：
+
+```bash
+clashctl add "file:///绝对路径/clash.yaml" home
+```
+
+支持格式：
+
+- Clash / Mihomo YAML
+- Base64 订阅
+- 分享链接（`vmess` / `vless` / `trojan` / `tuic`）
+
 ### 开机接管（内核 + 代理）
 
 ```bash
@@ -171,23 +199,37 @@ clashctl boot proxy on|off|status
 - `boot proxy`：只管理 `/etc/environment` 中的代理持久块（决定开机后是否自动保持代理变量）。
 - `boot`：整体接管开关，等价于同时编排 runtime + proxy 两层状态。
 
-### 本地订阅
+------
 
-可以先手动下载 Clash 格式的订阅 YAML 文件到本地，再通过 `file://` 添加：
+## OpenWrt 脚本模式
 
-格式：`clashctl add "file:///绝对路径/xxx.yaml" 名称`
+当前提供 OpenWrt 脚本模式兼容，适合 x86_64/amd64 与 aarch64/arm64 软路由或设备。该模式复用现有 `script` 运行后端，不包含 procd 开机自启、LuCI、UCI 或 opkg 包化支持，也不承诺 MIPS 与 armv7 设备可用。
+
+建议先将项目放到持久化目录，避免放在 `/tmp`、`/run` 等重启会丢失的位置：
 
 ```bash
-mkdir -p ~/.config/clash-for-linux/subscriptions
-curl -L "https://example.com/sub.yaml" -o ~/.config/clash-for-linux/subscriptions/home.yaml
-clashctl add "file://$HOME/.config/clash-for-linux/subscriptions/home.yaml" home
-clashctl use home
-clashon
+cd /root
+git clone --branch master --depth 1 https://ghfast.top/https://github.com/wnlen/clash-for-linux.git
+cd clash-for-linux
 ```
 
-`file://` 只支持 Clash 本地 YAML 配置，不支持 convert 格式订阅。如果订阅源需要转换，请先转换为 Clash YAML 后再保存到本地文件。
+安装依赖：
 
-------
+```bash
+opkg update
+opkg install bash curl tar gzip coreutils-readlink unzip
+```
+
+安装与手动管理：
+
+```bash
+bash install.sh
+clashon
+clashctl status
+clashoff
+```
+
+OpenWrt 下 root/system 安装会把 `clashctl`、`clashon`、`clashoff` 等命令入口写入 `/usr/bin`，运行状态、日志和内核二进制仍保存在项目目录的 `runtime/` 下。仅脚本模式不会注册开机自启，设备重启后需要重新执行 `clashon`。
 
 ## 🏗️ 架构设计架构简述
 
