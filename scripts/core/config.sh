@@ -2885,19 +2885,143 @@ stop_subconverter() {
   rm -f "$pid_file"
 }
 
+subscription_payload_max_bytes() {
+  echo "${CLASH_SUBSCRIPTION_MAX_BYTES:-10485760}"
+}
+
+subscription_yaml_parse_timeout() {
+  echo "${CLASH_YAML_PARSE_TIMEOUT:-10}"
+}
+
+file_size_bytes() {
+  local file="$1"
+  local size
+
+  size="$(wc -c < "$file" 2>/dev/null)" || return 1
+  set -- $size
+  echo "${1:-0}"
+}
+
+run_command_with_timeout() {
+  local seconds="$1"
+  local pid watcher rc
+
+  shift
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+    return $?
+  fi
+
+  "$@" &
+  pid=$!
+
+  (
+    sleep "$seconds"
+    kill "$pid" 2>/dev/null || true
+  ) &
+  watcher=$!
+
+  wait "$pid"
+  rc=$?
+
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+
+  return "$rc"
+}
+
+subscription_payload_precheck() {
+  local file="$1"
+  local size max preview_file first_nonempty
+
+  SUBSCRIPTION_PAYLOAD_REJECT_REASON=""
+  SUBSCRIPTION_PAYLOAD_SIZE_BYTES=""
+
+  [ -s "$file" ] || {
+    SUBSCRIPTION_PAYLOAD_REJECT_REASON="返回内容为空"
+    return 1
+  }
+
+  size="$(file_size_bytes "$file" 2>/dev/null || echo 0)"
+  max="$(subscription_payload_max_bytes)"
+  case "$size" in
+    ''|*[!0-9]*) size="0" ;;
+  esac
+  case "$max" in
+    ''|*[!0-9]*) max="10485760" ;;
+  esac
+  SUBSCRIPTION_PAYLOAD_SIZE_BYTES="$size"
+
+  if [ "$size" -gt "$max" ]; then
+    SUBSCRIPTION_PAYLOAD_REJECT_REASON="返回内容过大：${size} bytes，超过上限 ${max} bytes"
+    return 1
+  fi
+
+  preview_file="$(config_tmp_dir)/subscription-response-head.txt"
+  mkdir -p "$(config_tmp_dir)"
+  sed -n '1,20p' "$file" > "$preview_file" 2>/dev/null || true
+
+  if grep -Eiq '<!doctype[[:space:]]+html|<html([[:space:]>]|$)|<head([[:space:]>]|$)|<body([[:space:]>]|$)|</html>' "$preview_file" 2>/dev/null; then
+    SUBSCRIPTION_PAYLOAD_REJECT_REASON="返回内容看起来是 HTML，不是 Clash YAML"
+    return 1
+  fi
+
+  first_nonempty="$(sed -n '/^[[:space:]]*$/d; s/^[[:space:]]*//; p; q' "$preview_file" 2>/dev/null || true)"
+  case "$first_nonempty" in
+    \<*)
+      SUBSCRIPTION_PAYLOAD_REJECT_REASON="返回内容以 '<' 开头，看起来不是 Clash YAML"
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
 subscription_yaml_validate() {
   local file="$1"
+  local parse_rc structure_rc structure_ok
+  local timeout_seconds errexit_was_set
 
-  [ -s "$file" ] || return 1
+  SUBSCRIPTION_YAML_VALIDATE_ERROR=""
+
+  if ! subscription_payload_precheck "$file"; then
+    SUBSCRIPTION_YAML_VALIDATE_ERROR="$SUBSCRIPTION_PAYLOAD_REJECT_REASON"
+    return 1
+  fi
+
+  timeout_seconds="$(subscription_yaml_parse_timeout)"
 
   # 先做一次最小 YAML 解析校验
-  if ! "$(yq_bin)" eval '.' "$file" >/dev/null 2>&1; then
+  errexit_was_set="false"
+  case "$-" in
+    *e*)
+      errexit_was_set="true"
+      set +e
+      ;;
+  esac
+  run_command_with_timeout "$timeout_seconds" "$(yq_bin)" eval '.' "$file" >/dev/null 2>&1
+  parse_rc=$?
+  [ "$errexit_was_set" = "true" ] && set -e
+  if [ "$parse_rc" -ne 0 ]; then
+    if [ "$parse_rc" -eq 124 ] || [ "$parse_rc" -eq 137 ] || [ "$parse_rc" -eq 143 ]; then
+      SUBSCRIPTION_YAML_VALIDATE_ERROR="YAML 解析超时（>${timeout_seconds}s）"
+    else
+      SUBSCRIPTION_YAML_VALIDATE_ERROR="YAML 解析失败"
+    fi
     return 1
   fi
 
   # 再做一次 Clash/Mihomo 订阅的基本结构校验
   # 允许是完整配置，也允许是仅包含 proxies / proxy-groups / rules / rule-providers 的订阅
-  if ! "$(yq_bin)" eval '
+  errexit_was_set="false"
+  case "$-" in
+    *e*)
+      errexit_was_set="true"
+      set +e
+      ;;
+  esac
+  structure_ok="$(run_command_with_timeout "$timeout_seconds" "$(yq_bin)" eval '
     (
       (.proxies != null) or
       (.["proxy-groups"] != null) or
@@ -2907,7 +3031,20 @@ subscription_yaml_validate() {
       (.port != null) or
       (.mode != null)
     )
-  ' "$file" 2>/dev/null | grep -qx 'true'; then
+  ' "$file" 2>/dev/null)"
+  structure_rc=$?
+  [ "$errexit_was_set" = "true" ] && set -e
+  if [ "$structure_rc" -ne 0 ]; then
+    if [ "$structure_rc" -eq 124 ] || [ "$structure_rc" -eq 137 ] || [ "$structure_rc" -eq 143 ]; then
+      SUBSCRIPTION_YAML_VALIDATE_ERROR="YAML 结构校验超时（>${timeout_seconds}s）"
+    else
+      SUBSCRIPTION_YAML_VALIDATE_ERROR="YAML 结构校验失败"
+    fi
+    return 1
+  fi
+
+  if [ "$structure_ok" != "true" ]; then
+    SUBSCRIPTION_YAML_VALIDATE_ERROR="返回内容不是可运行的 Clash YAML"
     return 1
   fi
 
@@ -3138,8 +3275,12 @@ convert_subscription_via_subconverter() {
 
   [ "$errexit_was_set" = "true" ] && set -e
 
-  http_code="$(printf '%s\n' "$curl_meta" | head -n 1)"
-  effective_url="$(printf '%s\n' "$curl_meta" | sed -n '2p')"
+  http_code="${curl_meta%%$'\n'*}"
+  if [ "$http_code" = "$curl_meta" ]; then
+    effective_url=""
+  else
+    effective_url="${curl_meta#*$'\n'}"
+  fi
 
   if [ -n "${effective_url:-}" ]; then
     if [ "$scheme" = "file" ]; then
@@ -3171,6 +3312,20 @@ convert_subscription_via_subconverter() {
     return 1
   }
 
+  if ! subscription_payload_precheck "$tmp_file"; then
+    write_subscription_invalid_debug_snapshot "$tmp_file"
+
+    warn "subconverter 返回内容预检查失败：$SUBSCRIPTION_PAYLOAD_REJECT_REASON"
+    warn "调试预览已写入：$(config_tmp_dir)/subscription-invalid-preview.txt"
+    [ -f "$log_file" ] && warn "subconverter 日志：$log_file"
+
+    rm -f "$tmp_file" 2>/dev/null || true
+    return 1
+  fi
+
+  info "subconverter 响应大小：${SUBSCRIPTION_PAYLOAD_SIZE_BYTES:-unknown} bytes"
+  info "正在校验 subconverter 返回的 YAML"
+
   if subscription_yaml_validate "$tmp_file"; then
     validate_ok="true"
   fi
@@ -3178,7 +3333,7 @@ convert_subscription_via_subconverter() {
   if [ "$validate_ok" != "true" ]; then
     write_subscription_invalid_debug_snapshot "$tmp_file"
 
-    warn "subconverter 返回内容不是合法 Clash YAML"
+    warn "subconverter 返回内容不是合法 Clash YAML：${SUBSCRIPTION_YAML_VALIDATE_ERROR:-未知原因}"
     warn "调试预览已写入：$(config_tmp_dir)/subscription-invalid-preview.txt"
     [ -f "$log_file" ] && warn "subconverter 日志：$log_file"
 
