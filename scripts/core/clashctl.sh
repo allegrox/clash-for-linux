@@ -24,6 +24,7 @@ Usage:
 
 🚀 Main Path:
   add                            ➕ 添加订阅
+  add local                      ➕ 从 runtime/subscriptions 导入本地订阅
   use                            💱 切换订阅
   select                         💫 切换节点
 
@@ -91,6 +92,7 @@ usage_advanced() {
 
 🚀 Main Path Reminder:
   clashctl add [订阅链接] [名称]
+  clashctl add local
   clashctl use
   clashon
   clashctl select
@@ -2875,6 +2877,7 @@ cmd_ui_help_summary() {
   printf '  %-18s %s\n' "clashsecret" "🔑 查看或设置 Web 密钥"
   echo "📦 订阅"
   printf '  %-18s %s\n' "clashctl add" "➕ 添加订阅"
+  printf '  %-18s %s\n' "clashctl add local" "➕ 从 runtime/subscriptions 导入本地订阅"
   printf '  %-18s %s\n' "clashctl use" "💱 切换订阅"
   printf '  %-18s %s\n' "clashctl ls" "📡 查看订阅列表"
   echo "📌 高级"
@@ -5740,11 +5743,35 @@ add_prompt_name() {
   done
 }
 
+add_prompt_local_url() {
+  local input filename local_path
+
+  printf "请输入本地订阅文件名（默认目录：%s/runtime/subscriptions/）：" "$PROJECT_DIR" >&2
+  IFS= read -r input || return 1
+  filename="$(add_trim_input "$input")"
+
+  [ -n "${filename:-}" ] || die "本地订阅文件名不能为空"
+
+  local_path="$PROJECT_DIR/runtime/subscriptions/$filename"
+
+  [ -f "$local_path" ] || die "本地订阅文件不存在：$local_path"
+  [ -s "$local_path" ] || die "本地订阅文件为空：$local_path"
+
+  echo "file://$local_path"
+}
+
 cmd_add() {
   local sub_url sub_name sub_fmt
 
   prepare
   ensure_add_use_prerequisites
+
+  if [ "${1:-}" = "local" ]; then
+    [ "$#" -eq 1 ] || die_usage "add local 参数不合法" "clashctl add local"
+    sub_url="$(add_prompt_local_url)"
+    cmd_add "$sub_url"
+    return $?
+  fi
 
   case "$#" in
     0)
@@ -5765,7 +5792,7 @@ cmd_add() {
 
   sub_fmt="$(detect_subscription_format "$sub_url")"
 
-  set_subscription "$sub_url" "$sub_fmt" "$sub_name"
+  set_subscription "$sub_url" "$sub_fmt" "$sub_name" "false"
   set_active_subscription "$sub_name"
   apply_runtime_change_after_config_mutation
   print_add_feedback "$sub_name" "$sub_url"

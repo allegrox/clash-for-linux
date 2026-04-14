@@ -2113,6 +2113,7 @@ set_subscription() {
   local url="$1"
   local fmt="${2:-}"
   local name="${3:-default}"
+  local should_regenerate="${4:-true}"
   local file
 
   [ -n "$url" ] || die "订阅地址不能为空"
@@ -2141,7 +2142,9 @@ set_subscription() {
     }
   ' "$file"
 
-  regenerate_config
+  if [ "$should_regenerate" = "true" ]; then
+    regenerate_config
+  fi
 }
 
 set_active_subscription() {
