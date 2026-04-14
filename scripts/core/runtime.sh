@@ -217,9 +217,19 @@ find_subconverter_binary() {
   echo "$found"
 }
 
+subconverter_runtime_layout_ready() {
+  local target_dir="$1"
+
+  [ -d "$target_dir" ] || return 1
+  [ -d "$target_dir/templates" ] \
+    || [ -d "$target_dir/base" ] \
+    || [ -d "$target_dir/config" ] \
+    || [ -d "$target_dir/rules" ]
+}
+
 resolve_subconverter() {
   local arch version file url tmp_dir tmp_file target_dir installed_version
-  local extract_dir package_type found_bin target_bin
+  local extract_dir package_type found_bin target_bin source_dir
 
   arch="$(get_arch)"
   version="${SUBCONVERTER_VERSION:-$DEFAULT_SUBCONVERTER_VERSION}"
@@ -229,7 +239,7 @@ resolve_subconverter() {
 
   if [ -f "$target_bin" ] && [ "$installed_version" = "$version" ]; then
     chmod +x "$target_bin" 2>/dev/null || true
-    if [ -x "$target_bin" ]; then
+    if [ -x "$target_bin" ] && subconverter_runtime_layout_ready "$target_dir"; then
       return 0
     fi
   fi
@@ -281,7 +291,12 @@ resolve_subconverter() {
     die "解压后未找到 subconverter 文件"
   }
 
-  cp -f "$found_bin" "$target_bin"
+  if [ "$package_type" = "binary" ]; then
+    cp -f "$found_bin" "$target_bin"
+  else
+    source_dir="$(dirname "$found_bin")"
+    cp -a "$source_dir"/. "$target_dir"/
+  fi
   chmod +x "$target_bin"
 
   [ -x "$target_bin" ] || {
