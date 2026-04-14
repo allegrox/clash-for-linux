@@ -6,7 +6,7 @@
 
 
 <h3 align="center">
-一个更完整、更优雅的 Linux Clash / <a href="https://github.com/MetaCubeX/mihomo">Mihomo</a> 运行平台。
+一个更完整、更优雅的 Linux Clash / <a href="https://github.com/MetaCubeX/mihomo">Mihomo</a> 代理环境。
 </h3>
 <p align="center">
   <img src="resources/shell.png" width="100%">
