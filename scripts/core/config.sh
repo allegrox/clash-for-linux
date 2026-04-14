@@ -1991,7 +1991,7 @@ apply_mixin_override() {
 
   RUNTIME_FILE="$runtime_file" MIXIN_FILE="$mixin_file_path" "$(yq_bin)" eval-all -i '
     select(fileIndex == 0)
-    * ((select(fileIndex == 1).override // {}))
+    * (((select(fileIndex == 1).override // {}) | del(.secret)))
   ' "$runtime_file" "$mixin_file_path"
 }
 

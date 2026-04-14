@@ -52,17 +52,19 @@ bash install.sh
 
 ```bash
 〽️ 常用命令
-  clashon            🚀 开启代理
-  clashoff           ⛔ 关闭代理
-  clashctl select    💫 选择节点
+  clashon              🚀 开启代理
+  clashoff             ⛔ 关闭代理
+  clashctl select      💫 选择节点
 🕹️  控制台
-  clashui            🕹️  查看 Web 控制台
-  clashsecret        🔑 查看或设置 Web 密钥
+  clashui              🕹️  查看 Web 控制台
 📦 订阅
-  clashctl add       ➕ 添加订阅
-  clashctl add local ➕ 从 runtime/subscriptions 导入本地订阅
-  clashctl use       💱 切换订阅
-  clashctl ls        📡 查看订阅列表
+  clashctl add         ➕ 添加订阅
+  clashctl add local   ➕ 从 runtime/subscriptions 导入本地订阅
+  clashctl use         💱 切换订阅
+  clashctl ls          📡 查看订阅列表
+🔐 密钥管理
+  clashctl secret show 🔑 查看密钥
+  clashctl secret set  🔐 设置密钥
 📌 高级
   clashctl tun       🧪 Tun 模式管理
   clashctl boot      🚦 开机代理接管管理

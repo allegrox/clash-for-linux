@@ -34,6 +34,7 @@ Usage:
 
 🕹️  Control:
   clashui                        🕹️  查看 Web 控制台
+  secret                         🔑 管理 Web 密钥（show / set）
   clashsecret                    🔑 查看或设置 Web 密钥
 
 🩺 Diagnose:
@@ -3897,6 +3898,9 @@ cmd_mixin_show() {
     print_mixin_template_example
   else
     cat "$file"
+    if mixin_config_has_secret_override "$file"; then
+      ui_warn "检测到 override.secret：该字段已忽略，请改用 clashctl secret set"
+    fi
   fi
   ui_blank
   ui_next "clashctl mixin edit"
@@ -3932,6 +3936,21 @@ mixin_config_is_empty() {
   return 1
 }
 
+mixin_config_has_secret_override() {
+  local file="$1"
+  local exists
+
+  [ -s "$file" ] || return 1
+  [ -x "$(yq_bin)" ] || return 1
+
+  exists="$("$(yq_bin)" eval '
+    (.override // {}) as $override |
+    (($override | type) == "!!map" and ($override | has("secret")))
+  ' "$file" 2>/dev/null | head -n 1 || true)"
+
+  [ "$exists" = "true" ]
+}
+
 print_mixin_template_example() {
   cat <<'EOF'
 当前 mixin 还没有实际补丁。可按这个结构填写：
@@ -3955,6 +3974,7 @@ append:
 
 说明：
   override 会覆盖同名字段
+  override.secret 会被忽略，控制器密钥只从 .env 的 CLASH_CONTROLLER_SECRET 读取
   prepend 会把数组内容放到原始订阅前面
   append 会把数组内容放到原始订阅后面
 EOF
@@ -4504,51 +4524,107 @@ doctor_evidence_lines() {
 
 set_controller_secret() {
   local secret="$1"
+
+  is_valid_controller_secret "$secret" || die "密钥不能为空"
+
+  write_env_value "CLASH_CONTROLLER_SECRET" "$secret"
+  export CLASH_CONTROLLER_SECRET="$secret"
+}
+
+sync_runtime_controller_secret_from_env() {
   local file="$RUNTIME_DIR/config.yaml"
+  local secret
 
-  [ -n "${secret:-}" ] || die "密钥不能为空"
-  [ -s "$file" ] || die "运行时配置不存在：$file"
+  [ -s "$file" ] || return 0
+  [ -x "$(yq_bin)" ] || return 1
 
+  secret="$(ensure_controller_secret)"
   SECRET_VALUE="$secret" "$(yq_bin)" eval -i '
     .secret = strenv(SECRET_VALUE)
   ' "$file"
+}
 
-  write_env_value "CLASH_CONTROLLER_SECRET" "$secret"
+show_controller_secret_from_env() {
+  local current_secret
+
+  current_secret="$(read_env_value "CLASH_CONTROLLER_SECRET" 2>/dev/null || true)"
+  if ! is_valid_controller_secret "$current_secret"; then
+    current_secret="${CLASH_CONTROLLER_SECRET:-}"
+  fi
+
+  echo
+  if is_valid_controller_secret "$current_secret"; then
+    ui_kv "🔑" "当前密钥" "$current_secret"
+  else
+    ui_kv "🚨" "当前密钥" "未设置"
+  fi
+
+  ui_kv "🔧" "密钥来源" "$PROJECT_DIR/.env"
+  ui_blank
+}
+
+print_controller_secret_apply_feedback() {
+  local synced="${1:-true}"
+
+  echo
+
+  if [ "$synced" = "true" ]; then
+    if status_is_running; then
+      service_restart
+      ui_kv "🐱" "状态" "密钥更新成功，已重启生效"
+    else
+      ui_kv "🐱" "状态" "将在下次启动时生效"
+    fi
+  else
+    ui_warn "运行时配置暂未同步：缺少 yq 或写入失败，请稍后执行 clashctl config regen"
+    ui_kv "🐱" "状态" "密钥已写入 .env，运行时配置同步后生效"
+  fi
+
+  ui_kv "🔧" "密钥来源" "$PROJECT_DIR/.env"
+  ui_blank
 }
 
 cmd_secret() {
-  local current_secret new_secret
+  local new_secret synced
 
   prepare
-  runtime_config_exists || die_state "运行时配置不存在" "clashctl add <订阅链接> 或 clashctl config regen"
 
   case "${1:-}" in
-    "")
-      current_secret="$(controller_secret 2>/dev/null || true)"
-      
-      echo
-      if [ -n "${current_secret:-}" ] && [ "$current_secret" != "null" ]; then
-        ui_kv "🔑" "当前密钥" "$current_secret"
-      else
-        ui_kv "🚨" "当前密钥" "未设置"
-      fi
+    ""|show)
+      [ "$#" -le 1 ] || die_usage "secret show 参数不合法" "clashctl secret show"
+      show_controller_secret_from_env
+      ;;
+    set)
+      shift || true
+      [ "$#" -le 1 ] || die_usage "secret set 参数不合法" "clashctl secret set [密钥]"
+      new_secret="${1:-}"
+      [ -n "${new_secret:-}" ] || new_secret="$(generate_secure_secret)"
+      set_controller_secret "$new_secret"
 
-      ui_blank
+      synced="true"
+      sync_runtime_controller_secret_from_env || synced="false"
+      print_controller_secret_apply_feedback "$synced"
+      ;;
+    help|-h|--help)
+      echo
+      echo "🔑 控制器密钥"
+      echo
+      echo "用法："
+      echo "  clashctl secret show"
+      echo "  clashctl secret set [密钥]"
+      echo
+      echo "兼容："
+      echo "  clashctl secret [密钥]"
+      echo "  clashsecret [密钥]"
+      echo
       ;;
     *)
       new_secret="$1"
       set_controller_secret "$new_secret"
 
-      echo
-
-      if status_is_running; then
-        service_restart
-        ui_kv "🐱" "状态" "密钥更新成功，已重启生效"
-      else
-        ui_kv "🐱" "状态" "将在下次启动时生效"
-      fi
-
-      ui_blank
+      synced="true"
+      sync_runtime_controller_secret_from_env || synced="false"
+      print_controller_secret_apply_feedback "$synced"
       ;;
   esac
 }
