@@ -3,7 +3,9 @@
   <br>
 </h1>
 
-
+<p align="center">
+  💬 社区交流：<a href="https://t.me/your_group">Telegram 群</a>
+</p>
 
 <h3 align="center">
 一个更完整、更优雅的 Linux Clash / <a href="https://github.com/MetaCubeX/mihomo">Mihomo</a> 运行平台。
