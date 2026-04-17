@@ -116,33 +116,6 @@ $ clashsecret
 - 若需将控制台暴露到公网，建议定期更换访问密钥，或通过 `SSH` 端口转发方式进行安全访问。
 
 ------
-### OpenWrt 脚本模式
-
-当前提供 OpenWrt 脚本模式兼容，适合 x86_64/amd64 与 aarch64/arm64 软路由或设备。该模式复用现有 `script` 运行后端，不包含 procd 开机自启、LuCI、UCI 或 opkg 包化支持，也不承诺 MIPS 与 armv7 设备可用。
-
-建议先将项目放到持久化目录，避免放在 `/tmp`、`/run` 等重启会丢失的位置：
-
-```bash
-cd /root
-git clone --branch master --depth 1 https://ghfast.top/https://github.com/wnlen/clash-for-linux.git
-cd clash-for-linux
-```
-
-安装依赖：
-
-```bash
-opkg update
-opkg install bash curl tar gzip coreutils-readlink unzip
-```
-
-安装与手动管理：
-
-```bash
-bash install.sh
-clashon
-clashctl status
-clashoff
-```
 
 OpenWrt 下 root/system 安装会把 `clashctl`、`clashon`、`clashoff` 等命令入口写入 `/usr/bin`，运行状态、日志和内核二进制仍保存在项目目录的 `runtime/` 下。仅脚本模式不会注册开机自启，设备重启后需要重新执行 `clashon`。
 ## 🧰 常用管理命令
